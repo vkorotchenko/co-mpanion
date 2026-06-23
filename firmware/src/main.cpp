@@ -7,14 +7,14 @@
 
 TFT_eSprite spr = TFT_eSprite(&M5.Lcd);
 
-// Advertise as "Claude-XXXX" (last two BT MAC bytes) so multiple sticks
-// in one room are distinguishable in the desktop picker. Name persists in
-// btName for the BLUETOOTH info page.
-static char btName[16] = "Claude";
+// Advertise as "Copilot-XXXX" (last two BT MAC bytes) so multiple sticks
+// in one room are distinguishable in the bridge's device picker. Name persists
+// in btName for the BLUETOOTH info page.
+static char btName[16] = "Copilot";
 static void startBt() {
   uint8_t mac[6] = {0};
   esp_read_mac(mac, ESP_MAC_BT);
-  snprintf(btName, sizeof(btName), "Claude-%02X%02X", mac[4], mac[5]);
+  snprintf(btName, sizeof(btName), "Copilot-%02X%02X", mac[4], mac[5]);
   bleInit(btName);
 }
 
@@ -543,8 +543,8 @@ void drawInfo() {
   if (infoPage == 0) {
     _infoHeader(p, y, "ABOUT", infoPage);
     spr.setTextColor(p.textDim, p.bg);
-    ln("I watch your Claude");
-    ln("desktop sessions.");
+    ln("I watch your Copilot");
+    ln("CLI sessions.");
     y += 6;
     ln("I sleep when nothing's");
     ln("happening, wake when");
@@ -575,7 +575,7 @@ void drawInfo() {
     ln("    hold 6s = off");
 
   } else if (infoPage == 2) {
-    _infoHeader(p, y, "CLAUDE", infoPage);
+    _infoHeader(p, y, "COPILOT", infoPage);
     spr.setTextColor(p.textDim, p.bg);
     ln("  sessions  %u", tama.sessionsTotal);
     ln("  running   %u", tama.sessionsRunning);
@@ -657,9 +657,9 @@ void drawInfo() {
       spr.setTextColor(p.text, p.bg);
       ln("TO PAIR");
       spr.setTextColor(p.textDim, p.bg);
-      ln(" Open Claude desktop");
-      ln(" > Developer");
-      ln(" > Hardware Buddy");
+      ln(" Run the co-mpanion");
+      ln(" bridge on your");
+      ln(" computer");
       y += 4;
       ln(" auto-connects via BLE");
     }
@@ -676,8 +676,8 @@ void drawInfo() {
     ln("source");
     y += 4;
     spr.setTextColor(p.text, p.bg);
-    ln("github.com/anthropics");
-    ln("/claude-desktop-buddy");
+    ln("github.com/vkorotchenko");
+    ln("/co-mpanion");
     y += 12;
     spr.setTextColor(p.textDim, p.bg);
     ln("hardware");
@@ -1141,7 +1141,7 @@ void loop() {
   // blink bookkeeping
 
   // Charging clock: takes over the home screen when on USB power, no
-  // overlays, no prompt, no live Claude data, and the RTC has been set
+  // overlays, no prompt, no live Copilot data, and the RTC has been set
   // by the bridge. Pet sleeps underneath. Exit restores Y via
   // applyDisplayMode() so the next mode-switch isn't visually offset.
   clockRefreshRtc();   // 1Hz internal throttle; also caches _onUsb
