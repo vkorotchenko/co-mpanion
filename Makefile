@@ -1,0 +1,97 @@
+# co-mpanion — build, flash, and release orchestration.
+#
+# The firmware is a PlatformIO project (firmware/, env `m5dial`); the bridge is
+# a Node.js app (bridge/). Cut a release by pushing a `firmware-v*` tag — the
+# release-firmware-* targets below do that, and
+# .github/workflows/firmware-release.yml builds the .bin and publishes a
+# GitHub Release.
+
+FIRMWARE_BIN := firmware/.pio/build/m5dial/firmware.bin
+
+.PHONY: help
+help: ## Show all available targets
+	@grep -E '^[a-zA-Z0-9_.-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
+		awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-28s\033[0m %s\n", $$1, $$2}'
+
+# ---- firmware -------------------------------------------------------------
+.PHONY: build upload monitor clean
+build: ## Build the M5Dial firmware
+	cd firmware && pio run
+
+upload: ## Build + USB-flash the firmware to a connected device
+	cd firmware && pio run -t upload
+
+monitor: ## Open the serial monitor
+	cd firmware && pio run -t monitor
+
+clean: ## Remove firmware build artifacts
+	cd firmware && pio run -t clean
+
+# ---- bridge ---------------------------------------------------------------
+.PHONY: bridge-install bridge-test flash flash-release
+bridge-install: ## Install bridge dependencies
+	cd bridge && npm install
+
+bridge-test: ## Run the bridge test suite
+	cd bridge && npm test
+
+flash: build ## Build, then OTA-flash the local firmware to the device over BLE
+	cd bridge && node src/index.js --flash ../$(FIRMWARE_BIN)
+
+flash-release: ## OTA-flash a published release bin over BLE (usage: make flash-release VERSION=x.y.z)
+	@test -n "$(VERSION)" || { echo "❌ Usage: make flash-release VERSION=x.y.z"; exit 1; }
+	@mkdir -p dist
+	gh release download "firmware-v$(VERSION)" --repo vkorotchenko/co-mpanion \
+		--pattern 'co-mpanion-firmware-*.bin' \
+		--output dist/co-mpanion-firmware-$(VERSION).bin --clobber
+	cd bridge && node src/index.js --flash ../dist/co-mpanion-firmware-$(VERSION).bin
+
+# ---- release --------------------------------------------------------------
+# Auto-detects the next version from the latest `firmware-v*` tag, creates an
+# annotated tag, and pushes it. CI does the actual build + publish.
+.PHONY: release-firmware-patch release-firmware-minor release-firmware-major
+release-firmware-patch: ## Tag+push a patch release (firmware-vX.Y.Z+1)
+	@$(MAKE) --no-print-directory _release BUMP=patch
+release-firmware-minor: ## Tag+push a minor release (firmware-vX.Y+1.0)
+	@$(MAKE) --no-print-directory _release BUMP=minor
+release-firmware-major: ## Tag+push a major release (firmware-vX+1.0.0)
+	@$(MAKE) --no-print-directory _release BUMP=major
+
+.PHONY: _release
+_release:
+	@if ! git diff --quiet || ! git diff --cached --quiet; then \
+		echo "❌ Working tree is dirty. Commit or stash changes before tagging a release."; \
+		exit 1; \
+	fi
+	@git fetch origin >/dev/null 2>&1 || true
+	@if ! git merge-base --is-ancestor HEAD origin/master 2>/dev/null; then \
+		echo "❌ HEAD is ahead of origin/master. Push your commits first."; \
+		exit 1; \
+	fi
+	@latest=$$(git tag -l 'firmware-v*' | sort -V | tail -n 1); \
+	if [ -z "$$latest" ]; then \
+		case "$(BUMP)" in \
+			patch) next="0.0.1";; \
+			minor) next="0.1.0";; \
+			major) next="1.0.0";; \
+		esac; \
+	else \
+		ver=$${latest#firmware-v}; \
+		major=$$(echo $$ver | awk -F. '{print $$1}'); \
+		minor=$$(echo $$ver | awk -F. '{print $$2}'); \
+		patch=$$(echo $$ver | awk -F. '{print $$3}'); \
+		case "$(BUMP)" in \
+			patch) next="$$major.$$minor.$$((patch + 1))";; \
+			minor) next="$$major.$$((minor + 1)).0";; \
+			major) next="$$((major + 1)).0.0";; \
+		esac; \
+	fi; \
+	tag="firmware-v$$next"; \
+	if git rev-parse -q --verify "refs/tags/$$tag" >/dev/null; then \
+		echo "❌ Tag $$tag already exists. Aborting."; \
+		exit 1; \
+	fi; \
+	echo "Releasing firmware v$$next..."; \
+	git tag -a "$$tag" -m "co-mpanion firmware v$$next" && \
+	git push origin "$$tag" && \
+	echo "✅ Tagged and pushed $$tag — CI will build and publish the release."

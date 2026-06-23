@@ -24,6 +24,7 @@ such built-in bridge — so co-mpanion ships that piece itself.
 | `firmware/` | The ESP32 device firmware (forked from `claude-desktop-buddy`, rebranded for Copilot). Build with PlatformIO. |
 | `bridge/` | **New.** A Node.js host app that acts as the BLE central, reads Copilot CLI state from `~/.copilot`, and streams it to the device. |
 | `REFERENCE.md` | The BLE Nordic-UART wire protocol both sides speak (unchanged from the source repo). |
+| `Makefile` | Build / USB-upload / OTA-flash / cut a release. Run `make help`. |
 
 ## How it works
 
@@ -65,25 +66,41 @@ M5Unified / M5GFX. It builds with the bundled **dual-bank** `partitions_ota_8mb.
 #### Updating over the air (OTA)
 
 Once the dual-bank firmware is on the device, you can update it over BLE instead
-of USB:
+of USB. The simplest path is the Makefile:
 
 ```bash
-cd firmware && pio run                       # build firmware.bin
-cd ../bridge && npm run flash -- ../firmware/.pio/build/m5dial/firmware.bin
+make flash                      # build + OTA-flash the local firmware over BLE
+# or push a published release to the device:
+make flash-release VERSION=0.2.0
 ```
 
-The bridge scans for the device, streams the image into the *other* app slot,
-and the device verifies an MD5 and reboots into it. A full image is ~1.2MB and
-takes a few minutes over BLE.
+Under the hood that builds `firmware.bin` and runs
+`bridge → npm run flash -- <bin>`; the bridge scans for the device, streams the
+image into the *other* app slot, and the device verifies an MD5 and reboots into
+it. A full image is ~1.2MB and takes a few minutes over BLE.
 
 - **One-time USB step:** the dual-bank partition table is a flash-layout change,
-  so the *first* time you must flash over USB (`pio run -t upload`). Every update
-  after that can be OTA.
+  so the *first* time you must flash over USB (`make upload`). Every update after
+  that can be OTA.
 - **Integrity:** the MD5 is checked before the boot partition is switched, so a
   corrupted transfer is never booted; the link is already encrypted. Signed
   firmware / bootloader rollback are out of scope — see `REFERENCE.md`.
-- The running version is reported in the `status` ack (`data.fw`, baked from the
-  `FW_VERSION` build flag).
+- The running version is reported in the `status` ack (`data.fw`).
+
+#### Cutting a release
+
+Releases are tag-driven. The Makefile bumps the version, tags, and pushes; a
+GitHub Actions workflow then builds the firmware and publishes the `.bin` +
+SHA256 to a GitHub Release (with the tag version baked into `FW_VERSION`).
+
+```bash
+make release-firmware-patch     # firmware-vX.Y.(Z+1)
+make release-firmware-minor     # firmware-vX.(Y+1).0
+make release-firmware-major     # firmware-v(X+1).0.0
+```
+
+(`make help` lists every target. Local dev builds report `FW_VERSION=dev`; only
+release builds carry a real version.)
 
 #### Controls (M5Dial)
 

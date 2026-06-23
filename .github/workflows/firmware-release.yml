@@ -1,0 +1,112 @@
+# co-mpanion firmware release pipeline.
+# Triggered by pushing a tag matching `firmware-v*` (e.g. `firmware-v0.2.0`),
+# which `make release-firmware-{patch,minor,major}` creates. Builds the M5Dial
+# firmware via PlatformIO and publishes a GitHub Release containing
+# `co-mpanion-firmware-<version>.bin` plus a SHA256 checksum.
+#
+# The version from the tag is baked into the binary (FW_VERSION) so the device's
+# `status` ack reports it, and the bridge can confirm an OTA update took.
+
+name: Firmware Release
+
+on:
+  push:
+    tags:
+      - 'firmware-v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: firmware-release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: ${{ runner.os }}-pio-comp-${{ hashFiles('firmware/platformio.ini') }}
+          restore-keys: |
+            ${{ runner.os }}-pio-comp-
+            ${{ runner.os }}-pio-
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      - name: Derive version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#firmware-v}"
+          echo "VERSION=${VERSION}" >> "$GITHUB_ENV"
+          # Mark prerelease when the version has a hyphen (e.g. -rc.1, -beta.2).
+          if [[ "$VERSION" == *-* ]]; then
+            echo "PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build firmware
+        # Inject the tag version as FW_VERSION (platformio.ini leaves it unset so
+        # local builds fall back to "dev"). The quoting yields a C string literal.
+        env:
+          PLATFORMIO_BUILD_FLAGS: -DFW_VERSION='"${{ env.VERSION }}"'
+        run: pio run -d firmware -e m5dial
+
+      - name: Stage release artifacts
+        run: |
+          mkdir -p dist
+          BIN_SRC="firmware/.pio/build/m5dial/firmware.bin"
+          BIN_DST="dist/co-mpanion-firmware-${VERSION}.bin"
+          cp "$BIN_SRC" "$BIN_DST"
+          # `<digest>  <filename>` with the basename so `sha256sum -c` is
+          # location-independent.
+          ( cd dist && sha256sum "co-mpanion-firmware-${VERSION}.bin" > "co-mpanion-firmware-${VERSION}.bin.sha256" )
+          ls -lh "$BIN_DST" "dist/co-mpanion-firmware-${VERSION}.bin.sha256"
+
+      - name: Write build summary
+        run: |
+          BIN="dist/co-mpanion-firmware-${VERSION}.bin"
+          SIZE_BYTES=$(stat -c%s "$BIN")
+          SIZE_KB=$(awk "BEGIN { printf \"%.1f\", ${SIZE_BYTES} / 1024 }")
+          DIGEST=$(awk '{print $1}' "dist/co-mpanion-firmware-${VERSION}.bin.sha256")
+          {
+            echo "## co-mpanion firmware ${VERSION}"
+            echo ""
+            echo "| Field | Value |"
+            echo "| --- | --- |"
+            echo "| Version | \`${VERSION}\` |"
+            echo "| Tag | \`${GITHUB_REF_NAME}\` |"
+            echo "| Binary | \`co-mpanion-firmware-${VERSION}.bin\` |"
+            echo "| Size | ${SIZE_BYTES} bytes (${SIZE_KB} KiB) |"
+            echo "| SHA256 | \`${DIGEST}\` |"
+            echo "| Prerelease | ${PRERELEASE} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: co-mpanion firmware ${{ env.VERSION }}
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ env.PRERELEASE == 'true' }}
+          fail_on_unmatched_files: true
+          files: |
+            dist/co-mpanion-firmware-${{ env.VERSION }}.bin
+            dist/co-mpanion-firmware-${{ env.VERSION }}.bin.sha256
