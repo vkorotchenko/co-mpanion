@@ -308,16 +308,16 @@
         </div>
 
         <div class="pin p-a"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag ok">A</span><small>front · big one</small></div>
+          <div><span class="tag ok">BTN</span><small>bezel button</small></div>
         </div>
         <div class="pin p-b"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag no">B</span><small>right side</small></div>
+          <div><span class="tag no">DIAL</span><small>rotary encoder</small></div>
         </div>
         <div class="pin r p-pwr"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag dim">PWR</span><small>left side</small></div>
+          <div><span class="tag dim">RST</span><small>reset / power</small></div>
         </div>
         <div class="pin r p-led"><span class="dot"></span><span class="wire"></span>
-          <div><span class="tag">LED</span><small>for alerts</small></div>
+          <div><span class="tag">TOUCH</span><small>round screen</small></div>
         </div>
         <div class="pin p-usb"><span class="dot"></span><span class="wire"></span>
           <div><span class="tag dim">USB-C</span><small>charge · clock</small></div>
@@ -326,10 +326,10 @@
 
       <h2>Gestures</h2>
       <div class="gestures">
-        <div class="gest"><b>SHAKE IT</b>Buddy gets dizzy. Purely for your amusement.</div>
-        <div class="gest"><b>FACE-DOWN</b>Naps &amp; refills energy. Flip back up to wake.</div>
-        <div class="gest"><b>ON ITS SIDE</b>While charging on USB, becomes a desk clock.</div>
-        <div class="gest"><b>LEAVE IT</b>Screen sleeps after 30s idle. Any button wakes it.</div>
+        <div class="gest"><b>SPIN FAST</b>Buddy gets dizzy. Purely for your amusement.</div>
+        <div class="gest"><b>ON USB</b>While charging, becomes a desk clock.</div>
+        <div class="gest"><b>ATTENTION</b>A red ring pulses at the edge + a chirp when an approval waits.</div>
+        <div class="gest"><b>LEAVE IT</b>Screen sleeps after 30s idle. Any input wakes it.</div>
       </div>
     </section>
 
@@ -339,30 +339,27 @@
       <table class="controls">
         <tr><th>INPUT</th><th>NORMALLY</th><th>ON A PROMPT</th></tr>
         <tr>
-          <td><span class="key a">A</span> tap</td>
-          <td>next screen <span class="dim">home → pet → info</span></td>
-          <td><span class="ok">✔ APPROVE</span></td>
+          <td><span class="key a">DIAL</span> turn</td>
+          <td>scroll transcript / move selection / change page</td>
+          <td>pick <span class="ok">approve</span> ↔ <span class="no">deny</span></td>
         </tr>
         <tr>
-          <td><span class="key">B</span> tap</td>
-          <td>next page / scroll transcript</td>
-          <td><span class="no">✘ DENY</span></td>
+          <td><span class="key">BTN</span> press</td>
+          <td>next screen <span class="dim">home → pet → info</span> / select</td>
+          <td>confirm the highlighted choice</td>
         </tr>
         <tr>
-          <td><span class="key a">A</span> hold</td>
-          <td colspan="2">open menu <span class="dim">· settings · power off · help · demo</span></td>
+          <td><span class="key a">BTN</span> hold</td>
+          <td colspan="2">open menu <span class="dim">· settings · turn off · help · demo</span></td>
         </tr>
         <tr>
-          <td><span class="key">PWR</span> tap</td>
-          <td colspan="2">screen on / off</td>
-        </tr>
-        <tr>
-          <td><span class="key">PWR</span> hold&nbsp;6s</td>
-          <td colspan="2">hard power off <span class="dim">· tap PWR again to boot</span></td>
+          <td><span class="key">TOUCH</span> tap</td>
+          <td>tap to wake</td>
+          <td>tap <span class="ok">✔ approve</span> / <span class="no">✘ deny</span> on screen</td>
         </tr>
         <tr>
           <td class="dim">in a menu</td>
-          <td colspan="2"><span class="key a">A</span> moves down&nbsp;&nbsp;·&nbsp;&nbsp;<span class="key">B</span> selects</td>
+          <td colspan="2"><span class="key a">DIAL</span> moves&nbsp;&nbsp;·&nbsp;&nbsp;<span class="key">BTN</span> selects</td>
         </tr>
       </table>
 
@@ -378,7 +375,7 @@
         <div class="mood"><span class="ico">(･﹏･)</span><b>BUSY</b><span>working</span></div>
         <div class="mood"><span class="ico" style="color:var(--no)">(!o!)</span><b>ATTN</b><span>approve!</span></div>
         <div class="mood"><span class="ico">\(^o^)</span><b>PARTY</b><span>level up</span></div>
-        <div class="mood"><span class="ico">(@_@)</span><b>DIZZY</b><span>shaken</span></div>
+        <div class="mood"><span class="ico">(@_@)</span><b>DIZZY</b><span>spun</span></div>
         <div class="mood"><span class="ico" style="color:var(--no)">(♥‿♥)</span><b>HEART</b><span>fast ok</span></div>
       </div>
 
@@ -386,9 +383,9 @@
       <div class="pair">
         <div class="step" data-n="1"><b>BRIDGE</b>Run the co-mpanion bridge on your computer (<code>npm start</code>)</div>
         <span class="arrow">›</span>
-        <div class="step" data-n="2"><b>SCAN</b>The bridge scans for your stick over BLE and connects automatically</div>
+        <div class="step" data-n="2"><b>SCAN</b>The bridge scans for your device over BLE and connects automatically</div>
         <span class="arrow">›</span>
-        <div class="step" data-n="3"><b>PAIR</b>Pick <code>Copilot-XXXX</code>, type the 6-digit code shown on the stick</div>
+        <div class="step" data-n="3"><b>PAIR</b>Pick <code>Copilot-XXXX</code>, type the 6-digit code shown on the device</div>
       </div>
     </section>
   </main>

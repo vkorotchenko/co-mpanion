@@ -1,9 +1,9 @@
 # co-mpanion
 
 A tiny desk-buddy for **GitHub Copilot CLI** users. It mirrors the experience of
-[`claude-desktop-buddy`](../claude-desktop-buddy): a small ESP32 pet (M5StickC
-Plus) that wakes up when you're working, looks busy while sessions run, and
-shows recent activity on its screen.
+[`claude-desktop-buddy`](../claude-desktop-buddy): a small ESP32 pet (an
+**M5Dial**) that wakes up when you're working, looks busy while sessions run, and
+shows recent activity on its round screen.
 
 The original buddy relies on the **Claude desktop app**, which natively scans
 for the device over Bluetooth and streams session data to it. Copilot has no
@@ -12,7 +12,7 @@ such built-in bridge — so co-mpanion ships that piece itself.
 ```
 ┌────────────────────┐   reads    ┌──────────────────────┐   BLE / NUS   ┌────────────┐
 │ GitHub Copilot CLI │ ─────────▶ │  co-mpanion bridge   │ ────JSON────▶ │  firmware  │
-│  (~/.copilot/…)     │  store +   │  (Node.js, BLE       │  heartbeat    │ (M5StickC) │
+│  (~/.copilot/…)     │  store +   │  (Node.js, BLE       │  heartbeat    │ (M5Dial)   │
 │                     │  logs      │   central)           │  snapshots    │            │
 └────────────────────┘            └──────────────────────┘               └────────────┘
 ```
@@ -57,10 +57,30 @@ cd firmware
 pio run -t upload
 ```
 
-The platform is pinned to `espressif32@6.9.0` in `platformio.ini` (the M5StickC
-Plus board variant doesn't build against the latest arduino-esp32 git
-snapshot). Same M5StickC Plus hardware as the original `claude-desktop-buddy`;
-see that repo's README for wiring/flashing details.
+The firmware targets the **M5Dial** (`board = m5stack-stamps3`, ESP32-S3). The
+platform is pinned to `espressif32@6.9.0` and the libraries are M5Dial /
+M5Unified / M5GFX. It builds with the bundled `partitions_8mb.csv` (2MB app +
+~6MB LittleFS for GIF character packs).
+
+#### Controls (M5Dial)
+
+The M5Dial has a round touchscreen, a rotary dial, and one button (on the
+bezel). There is **no IMU**, so the Stick's shake/face-down gestures are gone.
+
+| Input | Action |
+| --- | --- |
+| **Rotate dial** | scroll the transcript / move menu selection / change page; on a prompt, pick approve vs deny |
+| **Spin fast** | the buddy gets dizzy (replaces "shake") |
+| **Press button** | next screen (home → pet → info) / confirm a menu item / answer a prompt |
+| **Hold button** | open / close the menu |
+| **Touch** | tap the on-screen **approve**/**deny** buttons on a prompt; tap anywhere to wake |
+
+The screen powers off after 30s idle on battery (kept on while charging or when
+a prompt is up); any input wakes it. "Attention" pulses a red ring at the
+screen edge (there's no separate LED) plus a periodic chirp.
+
+> Migrating from the M5StickC Plus version? It lives in git history before the
+> M5Dial migration commit.
 
 ### 2. Run the bridge
 
