@@ -59,8 +59,31 @@ pio run -t upload
 
 The firmware targets the **M5Dial** (`board = m5stack-stamps3`, ESP32-S3). The
 platform is pinned to `espressif32@6.9.0` and the libraries are M5Dial /
-M5Unified / M5GFX. It builds with the bundled `partitions_8mb.csv` (2MB app +
-~6MB LittleFS for GIF character packs).
+M5Unified / M5GFX. It builds with the bundled **dual-bank** `partitions_ota_8mb.csv`
+(two ~1.94MB app slots for OTA + ~4MB LittleFS for GIF character packs).
+
+#### Updating over the air (OTA)
+
+Once the dual-bank firmware is on the device, you can update it over BLE instead
+of USB:
+
+```bash
+cd firmware && pio run                       # build firmware.bin
+cd ../bridge && npm run flash -- ../firmware/.pio/build/m5dial/firmware.bin
+```
+
+The bridge scans for the device, streams the image into the *other* app slot,
+and the device verifies an MD5 and reboots into it. A full image is ~1.2MB and
+takes a few minutes over BLE.
+
+- **One-time USB step:** the dual-bank partition table is a flash-layout change,
+  so the *first* time you must flash over USB (`pio run -t upload`). Every update
+  after that can be OTA.
+- **Integrity:** the MD5 is checked before the boot partition is switched, so a
+  corrupted transfer is never booted; the link is already encrypted. Signed
+  firmware / bootloader rollback are out of scope — see `REFERENCE.md`.
+- The running version is reported in the `status` ack (`data.fw`, baked from the
+  `FW_VERSION` build flag).
 
 #### Controls (M5Dial)
 

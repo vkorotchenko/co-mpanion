@@ -8,13 +8,17 @@ const { CopilotSource } = require('./copilot/source');
 const { SimulateSource } = require('./simulate');
 
 function parseArgs(argv) {
-  const a = { simulate: false, ble: true, fakeDevice: false, mcp: false, help: false };
-  for (const arg of argv.slice(2)) {
+  const a = { simulate: false, ble: true, fakeDevice: false, mcp: false, flash: null, help: false };
+  const rest = argv.slice(2);
+  for (let i = 0; i < rest.length; i++) {
+    const arg = rest[i];
     if (arg === '--simulate' || arg === '-s') a.simulate = true;
     else if (arg === '--no-ble') a.ble = false;
     else if (arg === '--fake-device') { a.fakeDevice = true; a.ble = false; }
     else if (arg === '--mcp') a.mcp = true;
+    else if (arg === '--flash') a.flash = rest[++i];
     else if (arg === '--help' || arg === '-h') a.help = true;
+    else if (a.flash === undefined) a.flash = arg;   // bare path after --flash
     else log.warn('Unknown argument:', arg);
   }
   return a;
@@ -25,17 +29,19 @@ const HELP = `co-mpanion bridge — stream GitHub Copilot CLI activity to a BLE 
 Usage: co-mpanion [options]
 
 Options:
-  -s, --simulate    Stream scripted fake activity instead of reading Copilot.
-      --no-ble      Don't use Bluetooth; print outgoing lines to the console.
-      --fake-device Simulate a connected device that auto-answers prompts
-                    (implies --no-ble; for testing confirm/MCP round-trips).
-      --mcp         Also run the MCP server (read+write tools for Copilot).
-  -h, --help        Show this help.
+  -s, --simulate     Stream scripted fake activity instead of reading Copilot.
+      --no-ble       Don't use Bluetooth; print outgoing lines to the console.
+      --fake-device  Simulate a connected device that auto-answers prompts
+                     (implies --no-ble; for testing confirm/MCP/OTA flows).
+      --mcp          Also run the MCP server (read+write tools for Copilot).
+      --flash <bin>  Push a firmware .bin to the device over BLE (OTA), then exit.
+  -h, --help         Show this help.
 
 Env:
   COPILOT_HOME           Copilot state dir (default ~/.copilot)
   COMPANION_NAME_PREFIX  BLE device name prefix to scan for (default "Copilot")
   COMPANION_MCP_PORT     MCP HTTP port (default 4317)
+  COMPANION_OTA_CHUNK    OTA chunk size in bytes (default 384)
   COMPANION_LOG          Log level: debug|info|warn|error (default info)
 `;
 
@@ -60,6 +66,13 @@ async function main() {
   }
 
   const transport = makeTransport(args);
+
+  // --- OTA flash mode: connect, push the firmware, exit --------------------
+  if (args.flash) {
+    await runFlash(transport, args.flash);
+    return;
+  }
+
   const source = args.simulate ? new SimulateSource(cfg) : new CopilotSource(cfg);
   log.info(args.simulate ? 'Source: simulated activity' : 'Source: Copilot CLI');
 
@@ -93,3 +106,49 @@ main().catch((err) => {
   log.error('Fatal:', err.stack || err.message);
   process.exit(1);
 });
+
+// Connect to the device, stream a firmware image over BLE OTA, then exit.
+async function runFlash(transport, binPath) {
+  const fs = require('fs');
+  if (!fs.existsSync(binPath)) {
+    log.error(`Firmware file not found: ${binPath}`);
+    process.exit(1);
+  }
+  const { flashFirmware } = require('./ota/flasher');
+  const chunkSize = parseInt(process.env.COMPANION_OTA_CHUNK || '384', 10);
+
+  await new Promise((resolve) => {
+    let started = false;
+    transport.on('connected', async () => {
+      if (started) return;
+      started = true;
+      try {
+        let lastPct = -1;
+        const t0 = Date.now();
+        await flashFirmware(transport, binPath, {
+          chunkSize,
+          onProgress: (written, total) => {
+            const pct = Math.floor((written / total) * 100);
+            if (pct !== lastPct) {
+              lastPct = pct;
+              process.stdout.write(`\r  flashing ${pct}% (${written}/${total} bytes)   `);
+            }
+          },
+        });
+        const secs = ((Date.now() - t0) / 1000).toFixed(1);
+        process.stdout.write('\n');
+        log.info(`Done in ${secs}s. Device is verifying + rebooting; it will re-advertise shortly.`);
+      } catch (err) {
+        process.stdout.write('\n');
+        log.error('OTA failed:', err.message);
+        try { await transport.writeLine({ cmd: 'ota_abort' }); } catch { /* noop */ }
+        process.exitCode = 1;
+      } finally {
+        try { await transport.stop(); } catch { /* noop */ }
+        resolve();
+      }
+    });
+    transport.on('scanning', () => log.info('Waiting for a co-mpanion device to flash...'));
+    transport.start();
+  });
+}

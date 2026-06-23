@@ -3,6 +3,7 @@
 #include <ArduinoJson.h>
 #include "ble_bridge.h"
 #include "xfer.h"
+#include "ota.h"
 #include "hw.h"
 
 struct TamaState {
@@ -71,6 +72,7 @@ inline bool dataRtcValid() { return _rtcValid; }
 static void _applyJson(const char* line, TamaState* out) {
   JsonDocument doc;
   if (deserializeJson(doc, line)) return;
+  if (otaCommand(doc)) { _lastLiveMs = millis(); return; }
   if (xferCommand(doc)) { _lastLiveMs = millis(); return; }
 
   // Bridge sends {"time":[epoch_sec, tz_offset_sec]}; the RTC8563 is set from

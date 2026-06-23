@@ -37,7 +37,7 @@ class FakeDeviceTransport extends EventEmitter {
   }
 
   writeRaw(str) {
-    process.stdout.write('  TX> ' + str);
+    if (str.indexOf('"ota_chunk"') === -1) process.stdout.write('  TX> ' + str);
     // Inspect for a permission prompt and schedule an auto-answer.
     try {
       const obj = JSON.parse(str);
@@ -50,10 +50,32 @@ class FakeDeviceTransport extends EventEmitter {
           this.emit('line', reply);
         }, this._delay);
       }
+      // OTA: ack each ota_* command so the flasher round-trip can be tested.
+      if (obj && typeof obj.cmd === 'string' && obj.cmd.startsWith('ota_')) {
+        this._handleOta(obj);
+      }
     } catch {
       /* not JSON, ignore */
     }
     return Promise.resolve(true);
+  }
+
+  _handleOta(obj) {
+    let ack;
+    if (obj.cmd === 'ota_begin') {
+      this._otaWritten = 0;
+      this._otaTotal = obj.size || 0;
+      ack = { ack: 'ota_begin', ok: true, n: 0 };
+    } else if (obj.cmd === 'ota_chunk') {
+      const len = obj.d ? Buffer.from(obj.d, 'base64').length : 0;
+      this._otaWritten = (this._otaWritten || 0) + len;
+      ack = { ack: 'ota_chunk', ok: true, n: this._otaWritten };
+    } else if (obj.cmd === 'ota_end') {
+      ack = { ack: 'ota_end', ok: true, n: this._otaWritten || 0 };
+    } else if (obj.cmd === 'ota_abort') {
+      ack = { ack: 'ota_abort', ok: true, n: 0 };
+    }
+    if (ack) setImmediate(() => this.emit('line', ack));
   }
 
   async stop() {

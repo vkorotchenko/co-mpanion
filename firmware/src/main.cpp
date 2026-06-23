@@ -737,6 +737,32 @@ void loop() {
   uint32_t now = millis();
 
   dataPoll(&tama);
+
+  // --- OTA in progress: take over the screen, suspend everything else -------
+  // Each loop dataPoll() drained pending BLE bytes into Update.write(); just
+  // show progress and keep the device awake until the device reboots on
+  // ota_end (or the transfer aborts).
+  if (otaActive()) {
+    if (screenOff) { hwScreenOn(brightLevel); screenOff = false; }
+    lastInteractMs = now;
+    const Palette& p = characterPalette();
+    spr.fillSprite(p.bg);
+    cline(98, p.text, p.bg, "updating");
+    uint32_t done = otaProgress(), total = otaTotal();
+    int pct = total ? (int)((uint64_t)done * 100 / total) : 0;
+    cline(132, p.body, p.bg, "%d%%", pct);
+    int barW = 170;
+    spr.drawRect(CX - barW/2, 150, barW, 10, p.textDim);
+    if (total > 0) {
+      int fill = (int)((uint64_t)(barW - 2) * done / total);
+      if (fill > 0) spr.fillRect(CX - barW/2 + 1, 151, fill, 8, p.body);
+    }
+    cline(182, p.textDim, p.bg, "keep powered");
+    spr.pushSprite(0, 0);
+    delay(4);
+    return;
+  }
+
   if (statsPollLevelUp()) triggerOneShot(P_CELEBRATE, 3000);
   baseState = derive(tama);
 

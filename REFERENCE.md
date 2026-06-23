@@ -191,6 +191,52 @@ contains a `manifest.json` with a `"name"` field, in which case that wins.
 If your device doesn't want pushed files, don't ack `char_begin`. The
 desktop times out after a few seconds and tells the user it failed.
 
+## Firmware OTA (co-mpanion extension)
+
+> This section is **not** part of the base Claude protocol — it's a co-mpanion
+> addition between *its* bridge and *its* firmware, carried over the same
+> encrypted NUS link.
+
+The co-mpanion bridge can update the device firmware over the air, streaming a
+`.bin` straight into the inactive OTA partition. The device must have a
+**dual-bank** partition table (`app0` + `app1` + `otadata`); adopting that table
+is a flash-layout change, so it has to be flashed **once over USB**, after which
+every later update can go over the air.
+
+The flow mirrors the folder push — one JSON object per line, each acked before
+the next is sent:
+
+```
+bridge:  {"cmd":"ota_begin","size":1268560,"md5":"df90…","version":"0.2.0"}
+device:  {"ack":"ota_begin","ok":true}
+
+bridge:  {"cmd":"ota_chunk","d":"<base64>"}
+device:  {"ack":"ota_chunk","ok":true,"n":<bytes_written_so_far>}
+         ...repeat until size bytes sent...
+
+bridge:  {"cmd":"ota_end"}
+device:  {"ack":"ota_end","ok":true,"n":<final_size>}   // then the device reboots
+```
+
+| Field | Meaning |
+| --- | --- |
+| `ota_begin.size` | Total image size in bytes. The device calls `Update.begin(size)` on the next OTA slot. |
+| `ota_begin.md5` | 32-hex MD5 of the whole image. The device verifies it in `Update.end()` **before** switching the boot partition, so a corrupted transfer is never booted. |
+| `ota_begin.version` | Informational; the device may refuse same/older versions. |
+| `ota_chunk.d` | Base64 of the next raw bytes (keep a chunk's whole line under the device's line buffer, ~1KB; co-mpanion uses 384-byte chunks). |
+| `ota_end` | Finalize, verify MD5, set the boot partition, reboot. |
+| `ota_abort` | Cancel an in-progress update; the device discards the partial image. |
+
+On any failure the ack carries `"ok":false` and an `"error"` string and the
+device aborts. Send `{"cmd":"status"}` after the device re-advertises to read
+the new `data.fw` version and confirm the update took.
+
+**Integrity vs. authenticity.** MD5 + the encrypted bonded link protect against
+corruption and eavesdropping. They do **not** authenticate the image — signed
+firmware / Secure Boot v2 and bootloader-level rollback are out of scope for the
+reference firmware (a logically-broken-but-valid image can still brick into a
+crash loop until reflashed over USB).
+
 ## Security and pairing
 
 The desktop app connects whether or not your device requests link

@@ -5,6 +5,10 @@
 #include <mbedtls/base64.h>
 #include <ArduinoJson.h>
 
+#ifndef FW_VERSION
+#define FW_VERSION "dev"
+#endif
+
 static File     _xFile;
 static uint32_t _xExpected = 0, _xWritten = 0;
 static char     _xCharName[24] = "";
@@ -117,15 +121,15 @@ inline bool xferCommand(JsonDocument& doc) {
     if (pct < 0) pct = 0; if (pct > 100) pct = 100;
     bool usb = hwOnUsb();
     int iBat = hwCharging() ? 1 : -1;   // sign-only: + charging, - discharging
-    char b[320];
+    char b[360];
     int len = snprintf(b, sizeof(b),
       "{\"ack\":\"status\",\"ok\":true,\"n\":0,\"data\":{"
-      "\"name\":\"%s\",\"owner\":\"%s\",\"sec\":%s,"
+      "\"name\":\"%s\",\"owner\":\"%s\",\"sec\":%s,\"fw\":\"%s\","
       "\"bat\":{\"pct\":%d,\"mV\":%d,\"mA\":%d,\"usb\":%s},"
       "\"sys\":{\"up\":%lu,\"heap\":%u,\"fsFree\":%lu,\"fsTotal\":%lu},"
       "\"stats\":{\"appr\":%u,\"deny\":%u,\"vel\":%u,\"nap\":%lu,\"lvl\":%u}"
       "}}\n",
-      petName(), ownerName(), bleSecure() ? "true" : "false",
+      petName(), ownerName(), bleSecure() ? "true" : "false", FW_VERSION,
       pct, vBat, iBat, usb ? "true" : "false",
       millis() / 1000, ESP.getFreeHeap(),
       (unsigned long)(LittleFS.totalBytes() - LittleFS.usedBytes()),
