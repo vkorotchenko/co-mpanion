@@ -1,0 +1,14 @@
+# Node / bridge
+node_modules/
+npm-debug.log*
+*.tsbuildinfo
+.env
+.env.local
+
+# PlatformIO / firmware
+.pio/
+firmware/.pio/
+firmware/data/
+
+# OS
+.DS_Store
