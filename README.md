@@ -57,8 +57,10 @@ cd firmware
 pio run -t upload
 ```
 
-(See `firmware/` / the original `claude-desktop-buddy` README for hardware and
-flashing details — same M5StickC Plus target.)
+The platform is pinned to `espressif32@6.9.0` in `platformio.ini` (the M5StickC
+Plus board variant doesn't build against the latest arduino-esp32 git
+snapshot). Same M5StickC Plus hardware as the original `claude-desktop-buddy`;
+see that repo's README for wiring/flashing details.
 
 ### 2. Run the bridge
 
