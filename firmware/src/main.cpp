@@ -741,7 +741,13 @@ void loop() {
   // --- OTA in progress: take over the screen, suspend everything else -------
   // Each loop dataPoll() drained pending BLE bytes into Update.write(); just
   // show progress and keep the device awake until the device reboots on
-  // ota_end (or the transfer aborts).
+  // ota_end (or the transfer aborts). A stall watchdog bails out if the bridge
+  // vanishes mid-update so we don't hang on the progress screen forever.
+  if (otaActive() && otaIdleMs() > 30000) {
+    otaAbortLocal();
+    applyDisplayMode();
+    beep(600, 120);
+  }
   if (otaActive()) {
     if (screenOff) { hwScreenOn(brightLevel); screenOff = false; }
     lastInteractMs = now;

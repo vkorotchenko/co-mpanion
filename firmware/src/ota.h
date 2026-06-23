@@ -33,10 +33,18 @@
 static bool     _otaActive = false;
 static uint32_t _otaTotal = 0, _otaWritten = 0;
 static uint32_t _otaStartMs = 0;
+static uint32_t _otaLastMs = 0;     // last begin/chunk; for the stall watchdog
 
 inline bool     otaActive()   { return _otaActive; }
 inline uint32_t otaProgress() { return _otaWritten; }
 inline uint32_t otaTotal()    { return _otaTotal; }
+inline uint32_t otaIdleMs()   { return millis() - _otaLastMs; }
+
+// Locally abort a stuck transfer (e.g. the bridge vanished mid-update) so the
+// device resumes normal operation instead of hanging on the progress screen.
+inline void otaAbortLocal() {
+  if (_otaActive) { Update.abort(); _otaActive = false; }
+}
 
 static void _otaAck(const char* what, bool ok, uint32_t n = 0, const char* err = nullptr) {
   char b[112];
@@ -57,6 +65,7 @@ inline bool otaCommand(JsonDocument& doc) {
   if (!cmd) return false;
 
   if (strcmp(cmd, "ota_begin") == 0) {
+    if (_otaActive) Update.abort();   // a previous transfer never finished
     _otaTotal = doc["size"] | 0;
     const char* md5 = doc["md5"];
     if (_otaTotal == 0) { _otaAck("ota_begin", false, 0, "no size"); return true; }
@@ -69,6 +78,7 @@ inline bool otaCommand(JsonDocument& doc) {
     _otaWritten = 0;
     _otaActive = true;
     _otaStartMs = millis();
+    _otaLastMs = millis();
     _otaAck("ota_begin", true);
     return true;
   }
@@ -90,6 +100,7 @@ inline bool otaCommand(JsonDocument& doc) {
       return true;
     }
     _otaWritten += outLen;
+    _otaLastMs = millis();
     _otaAck("ota_chunk", true, _otaWritten);
     return true;
   }
