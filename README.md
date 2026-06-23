@@ -41,11 +41,11 @@ The bridge sources data from the Copilot CLI's local state:
 
 ### Current scope
 
-- ✅ **Read-only telemetry**: session counts, recent messages, busy/idle states,
+- **Read-only telemetry**: session counts, recent messages, busy/idle states,
   best-effort token estimates.
-- 🧪 **`--simulate` mode**: stream fake snapshots to bring up / test a device
+- **`--simulate` mode**: stream fake snapshots to bring up / test a device
   without any real Copilot activity.
-- ⏳ **Approve/deny from the device**: deferred. The Copilot CLI's approval flow
+- **Approve/deny from the device**: deferred. The Copilot CLI's approval flow
   isn't obviously hookable from outside the process — see the
   `permission-spike` notes. The protocol path is designed but not wired up.
 

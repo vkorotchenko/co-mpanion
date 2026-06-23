@@ -39,7 +39,7 @@ flash: build ## Build, then OTA-flash the local firmware to the device over BLE
 	cd bridge && node src/index.js --flash ../$(FIRMWARE_BIN)
 
 flash-release: ## OTA-flash a published release bin over BLE (usage: make flash-release VERSION=x.y.z)
-	@test -n "$(VERSION)" || { echo "❌ Usage: make flash-release VERSION=x.y.z"; exit 1; }
+	@test -n "$(VERSION)" || { echo "Usage: make flash-release VERSION=x.y.z"; exit 1; }
 	@mkdir -p dist
 	gh release download "firmware-v$(VERSION)" --repo vkorotchenko/co-mpanion \
 		--pattern 'co-mpanion-firmware-*.bin' \
@@ -60,12 +60,12 @@ release-firmware-major: ## Tag+push a major release (firmware-vX+1.0.0)
 .PHONY: _release
 _release:
 	@if ! git diff --quiet || ! git diff --cached --quiet; then \
-		echo "❌ Working tree is dirty. Commit or stash changes before tagging a release."; \
+		echo "Error: Working tree is dirty. Commit or stash changes before tagging a release."; \
 		exit 1; \
 	fi
 	@git fetch origin >/dev/null 2>&1 || true
 	@if ! git merge-base --is-ancestor HEAD origin/master 2>/dev/null; then \
-		echo "❌ HEAD is ahead of origin/master. Push your commits first."; \
+		echo "Error: HEAD is ahead of origin/master. Push your commits first."; \
 		exit 1; \
 	fi
 	@latest=$$(git tag -l 'firmware-v*' | sort -V | tail -n 1); \
@@ -88,10 +88,10 @@ _release:
 	fi; \
 	tag="firmware-v$$next"; \
 	if git rev-parse -q --verify "refs/tags/$$tag" >/dev/null; then \
-		echo "❌ Tag $$tag already exists. Aborting."; \
+		echo "Error: Tag $$tag already exists. Aborting."; \
 		exit 1; \
 	fi; \
 	echo "Releasing firmware v$$next..."; \
 	git tag -a "$$tag" -m "co-mpanion firmware v$$next" && \
 	git push origin "$$tag" && \
-	echo "✅ Tagged and pushed $$tag — CI will build and publish the release."
+	echo "Tagged and pushed $$tag — CI will build and publish the release."
