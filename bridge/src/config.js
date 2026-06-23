@@ -34,6 +34,12 @@ module.exports = {
   // Poll the device's status ack this often (for the on-device stats panel).
   statusPollMs: 15000,
 
+  // --- MCP server (optional bidirectional "write" surface) -----------------
+  mcp: {
+    host: process.env.COMPANION_MCP_HOST || '127.0.0.1',
+    port: parseInt(process.env.COMPANION_MCP_PORT || '4317', 10),
+  },
+
   // --- Activity heuristics -------------------------------------------------
   // A session counts as "active/total" if it produced a turn within this window.
   activeWindowMs: 5 * 60 * 1000,

@@ -28,18 +28,22 @@ Bluetooth is off the bridge logs `BLE adapter state: poweredOff` and waits.
 npm start            # read Copilot CLI activity, stream to a "Copilot-XXXX" device
 npm run simulate     # stream scripted fake activity to a real device
 npm run dry-run      # simulate + print lines to the console (no Bluetooth/device)
+npm run mcp          # also run the MCP server (read + write tools for Copilot)
+npm test             # end-to-end MCP round-trip test against a fake device
 ```
 
 Or directly:
 
 ```bash
-node src/index.js [--simulate] [--no-ble]
+node src/index.js [--simulate] [--no-ble] [--fake-device] [--mcp]
 ```
 
 | Flag | Effect |
 | --- | --- |
 | `--simulate`, `-s` | Use scripted fake activity instead of reading Copilot. |
 | `--no-ble` | Print outgoing JSON lines to the console instead of using BLE. |
+| `--fake-device` | Simulate a connected device that auto-answers prompts (implies `--no-ble`). |
+| `--mcp` | Also run the MCP server (see below). |
 | `--help`, `-h` | Usage. |
 
 ### Environment
@@ -48,7 +52,48 @@ node src/index.js [--simulate] [--no-ble]
 | --- | --- | --- |
 | `COPILOT_HOME` | `~/.copilot` | Copilot CLI state directory. |
 | `COMPANION_NAME_PREFIX` | `Copilot` | BLE device-name prefix to scan for. |
+| `COMPANION_MCP_PORT` | `4317` | Port for the MCP HTTP server (`--mcp`). |
 | `COMPANION_LOG` | `info` | `debug` \| `info` \| `warn` \| `error`. |
+
+## Bidirectional mode (MCP): the device can answer the agent
+
+By default the bridge is **read-only** telemetry. With `--mcp` it also hosts an
+**MCP server** so the Copilot CLI agent can *talk back to the device* — the
+supported "read + write" path (see the project notes on why a raw approve/deny
+hook isn't possible). The MCP server reuses the device's existing
+permission-prompt UI, so **no firmware change is needed**.
+
+```bash
+npm run mcp     # bridge + MCP server on http://127.0.0.1:4317/mcp
+```
+
+Register it with the Copilot CLI by adding an HTTP server to
+`~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "co-mpanion": { "type": "http", "url": "http://127.0.0.1:4317/mcp", "tools": ["*"] }
+  }
+}
+```
+
+Tools exposed to the agent:
+
+| Tool | Direction | What it does |
+| --- | --- | --- |
+| `companion_status` | read | Returns current activity (sessions, busy/idle, recent messages, whether a device is connected). |
+| `companion_notify` | write | Flashes a short message on the device screen. |
+| `companion_confirm` | write | Shows an approve/deny prompt on the device and **blocks until the user presses a button**, returning `approved` / `denied`. |
+
+Nudge the agent to route risky actions through it, e.g. in `AGENTS.md`:
+*"Before any irreversible action, call `companion_confirm` and respect the
+result."* The agent then gets a physical button press back as the tool result.
+
+> This covers actions the agent *chooses* to route through the tool — it does
+> not intercept Copilot's own built-in permission prompts (that isn't externally
+> hookable today). See the project notes / `permission-spike`.
+
 
 ## Where the data comes from
 

@@ -11,13 +11,16 @@
   "scripts": {
     "start": "node src/index.js",
     "simulate": "node src/index.js --simulate",
-    "dry-run": "node src/index.js --simulate --no-ble"
+    "dry-run": "node src/index.js --simulate --no-ble",
+    "mcp": "node src/index.js --mcp",
+    "test": "node test/mcp-roundtrip.js"
   },
   "engines": {
     "node": ">=18"
   },
   "dependencies": {
     "@abandonware/noble": "^1.9.2-25",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "better-sqlite3": "^11.8.1"
   }
 }
