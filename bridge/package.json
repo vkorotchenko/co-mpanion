@@ -1,0 +1,23 @@
+{
+  "name": "co-mpanion-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bridges GitHub Copilot CLI activity to a co-mpanion BLE desk-buddy device.",
+  "license": "MIT",
+  "type": "commonjs",
+  "bin": {
+    "co-mpanion": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "simulate": "node src/index.js --simulate",
+    "dry-run": "node src/index.js --simulate --no-ble"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@abandonware/noble": "^1.9.2-25",
+    "better-sqlite3": "^11.8.1"
+  }
+}
