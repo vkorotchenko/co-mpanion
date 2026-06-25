@@ -122,17 +122,49 @@ screen edge (there's no separate LED) plus a periodic chirp.
 > Migrating from the M5StickC Plus version? It lives in git history before the
 > M5Dial migration commit.
 
-### 2. Run the bridge
+### 2. Install the bridge + MCP (one command)
+
+```bash
+make install
+```
+
+This is the whole "clone → install → use" path. It:
+
+1. installs the bridge's Node dependencies (`npm install`),
+2. registers co-mpanion in `~/.copilot/mcp-config.json` as an **HTTP** MCP server
+   (merging with any servers you already have), and
+3. installs a small **background service** that keeps one bridge running and
+   owns the device across every Copilot session and reboots — **launchd** on
+   macOS, **systemd `--user`** on Linux.
+
+Then **restart any running Copilot session** so it picks up the new MCP config,
+and you're done — the buddy wakes up when you work, and the agent can push
+questions to it via `companion_confirm`.
+
+On macOS the first run prompts for Bluetooth permission; grant it.
+
+```bash
+make service-restart   # restart the background bridge
+make service-logs      # tail its logs
+make uninstall         # stop + remove the service and MCP entry
+```
+
+> **Why a background service?** A single Copilot session can run several
+> processes (the interactive shell, agent subprocesses, sub-agents), and the
+> device accepts only one BLE connection. One long-lived bridge owning the link
+> — rather than each process spawning its own and fighting over it — is what
+> makes prompts reliably reach the device. See `bridge/README.md` for the
+> transport details and a manual/advanced setup.
+
+#### Test without the full setup
 
 ```bash
 cd bridge
 npm install
-npm start          # scans for a "Copilot-XXXX" device and streams live data
-# or:
-npm run simulate   # streams scripted fake data to test the device
+npm run dry-run    # print scripted snapshots to the console (no Bluetooth)
+npm run simulate   # stream scripted activity to a real device
+npm start          # stream your live Copilot activity (read-only telemetry)
 ```
-
-On macOS the first run will prompt for Bluetooth permission; grant it.
 
 ## Status & caveats
 

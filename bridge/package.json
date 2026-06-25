@@ -15,6 +15,8 @@
     "mcp": "node src/index.js --mcp",
     "mcp-stdio": "node src/index.js --mcp-stdio",
     "flash": "node src/index.js --flash",
+    "setup": "node scripts/setup.js",
+    "uninstall": "node scripts/setup.js --uninstall",
     "test": "node test/mcp-roundtrip.js && node test/ota-flash.js"
   },
   "engines": {

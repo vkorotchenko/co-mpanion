@@ -35,6 +35,32 @@ bridge-install: ## Install bridge dependencies
 bridge-test: ## Run the bridge test suite
 	cd bridge && npm test
 
+# ---- install (managed background service + MCP registration) --------------
+# The "clone -> install -> use" path: deps, register co-mpanion as an HTTP MCP
+# server in ~/.copilot/mcp-config.json, and install a per-user background service
+# (launchd on macOS, systemd --user on Linux) so one bridge always owns the
+# device. Idempotent; re-run any time.
+.PHONY: install uninstall service-restart service-logs
+install: bridge-install ## Install: deps + register MCP (http) + background service
+	cd bridge && node scripts/setup.js
+
+uninstall: ## Stop + remove the background service and the MCP registration
+	cd bridge && node scripts/setup.js --uninstall
+
+service-restart: ## Restart the background bridge service
+	@case "$$(uname)" in \
+	  Darwin) launchctl kickstart -k gui/$$(id -u)/com.co-mpanion.bridge && echo "restarted (launchd)";; \
+	  Linux)  systemctl --user restart co-mpanion-bridge.service && echo "restarted (systemd)";; \
+	  *) echo "Unsupported platform";; \
+	esac
+
+service-logs: ## Tail the background bridge service logs
+	@case "$$(uname)" in \
+	  Darwin) tail -f "$$HOME/Library/Logs/co-mpanion-bridge.log";; \
+	  Linux)  journalctl --user -u co-mpanion-bridge.service -f;; \
+	  *) echo "Unsupported platform";; \
+	esac
+
 flash: build ## Build, then OTA-flash the local firmware to the device over BLE
 	cd bridge && node src/index.js --flash ../$(FIRMWARE_BIN)
 

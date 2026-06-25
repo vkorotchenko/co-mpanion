@@ -29,6 +29,8 @@ npm start            # read Copilot CLI activity, stream to a "Copilot-XXXX" dev
 npm run simulate     # stream scripted fake activity to a real device
 npm run dry-run      # simulate + print lines to the console (no Bluetooth/device)
 npm run mcp          # also run the MCP server (read + write tools for Copilot)
+npm run setup        # install: register MCP (http) + background service (see below)
+npm run uninstall    # stop + remove the background service and MCP registration
 npm test             # end-to-end MCP round-trip test against a fake device
 ```
 
@@ -69,12 +71,44 @@ permission-prompt UI, so **no firmware change is needed**.
 npm run mcp     # bridge + MCP server on http://127.0.0.1:4317/mcp
 ```
 
-### Option A — start the bridge with your Copilot session (`type: "local"`, recommended)
+### Recommended — `make install` (HTTP + managed background service)
 
-Register the bridge as a **local (stdio) MCP server**. Copilot CLI then *launches
-the whole bridge itself* (BLE + telemetry + MCP) when a session starts and stops
-it when the session ends — no manual `npm start` needed. Add to
-`~/.copilot/mcp-config.json`:
+From the repo root, `make install` does everything: installs deps, registers
+co-mpanion as a **`type:"http"`** MCP server in `~/.copilot/mcp-config.json`, and
+installs a per-user background service (launchd on macOS, systemd `--user` on
+Linux) that keeps **one** bridge running and owning the device. That single
+shared bridge is the key: a Copilot session can spawn several processes
+(interactive shell, agent subprocess, sub-agents) and the device accepts only
+one BLE connection, so one long-lived owner — instead of a bridge-per-process
+scramble — is what makes prompts reliably reach the device.
+
+The MCP entry it writes is simply:
+
+```json
+{
+  "mcpServers": {
+    "co-mpanion": { "type": "http", "url": "http://127.0.0.1:4317/mcp", "tools": ["*"] }
+  }
+}
+```
+
+Manage it with `make service-restart`, `make service-logs`, `make uninstall`.
+Restart any running Copilot session afterward so it loads the new config.
+
+### Manual HTTP (no service)
+
+Prefer to manage the process yourself? Start the bridge with `npm run mcp` (keep
+it running) and add the same `type:"http"` entry above to
+`~/.copilot/mcp-config.json` by hand.
+
+### Advanced — stdio (`type: "local"`, single-process only)
+
+Copilot can instead *launch the bridge itself* over stdio. Only use this if you
+run a **single** Copilot process at a time: each process spawns its own bridge,
+and only one can hold the BLE device — so with concurrent processes (agent
+subprocesses, sub-agents, a separate interactive shell) the others get a
+disconnected bridge and questions won't appear. Prefer HTTP above unless you
+know you need this.
 
 ```json
 {
@@ -90,21 +124,6 @@ it when the session ends — no manual `npm start` needed. Add to
 ```
 
 `--mcp-stdio` speaks JSON-RPC over stdout, so all logs are redirected to stderr.
-Caveat: each session spawns its own bridge, and only one can hold the BLE device
-at a time — fine for a single active session.
-
-### Option B — long-running bridge + HTTP (`type: "http"`)
-
-Start the bridge yourself (`npm run mcp`) and just *connect* Copilot to it. The
-bridge keeps running across sessions and one instance owns the device:
-
-```json
-{
-  "mcpServers": {
-    "co-mpanion": { "type": "http", "url": "http://127.0.0.1:4317/mcp", "tools": ["*"] }
-  }
-}
-```
 
 Tools exposed to the agent:
 
