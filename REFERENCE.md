@@ -78,6 +78,22 @@ midnight if you want a daily counter.
 If you don't receive a snapshot for ~30 seconds, treat the connection as
 dead.
 
+### Session-detail fields (co-mpanion addition)
+
+> These optional fields are **not** part of the base Claude protocol — the
+> co-mpanion bridge adds them so the device can show what the live session is
+> using. Treat them as optional and tolerate their absence.
+
+| Field         | Meaning                                                              |
+| ------------- | ------------------------------------------------------------------- |
+| `model`       | Active AI model name, e.g. `"claude-opus-4.8"` (≤23 chars shown)     |
+| `effort`      | Reasoning effort, e.g. `"medium"` (best-effort; may be absent)       |
+| `tokens_used` | Context-window tokens currently in use for the live session         |
+| `tokens_max`  | Context-window size, so a device can show `used/max`                 |
+
+`effort` is only emitted when the CLI logs it (debug-level), so it is often
+absent; render the model/tokens without it in that case.
+
 ## Turn events
 
 Each completed turn also fires a one-shot event containing the raw SDK

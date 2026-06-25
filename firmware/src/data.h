@@ -12,10 +12,14 @@ struct TamaState {
   uint8_t  sessionsWaiting;
   bool     recentlyCompleted;
   uint32_t tokensToday;
+  uint32_t tokensUsed;       // context-window tokens in use (live session)
+  uint32_t tokensMax;        // context-window size
   uint32_t lastUpdated;
   char     msg[24];
+  char     model[24];        // active AI model, e.g. "claude-opus-4.8"
+  char     effort[10];       // reasoning effort, e.g. "medium" (may be empty)
   bool     connected;
-  char     lines[8][92];
+  char     lines[8][160];
   uint8_t  nLines;
   uint16_t lineGen;          // bumps when lines change — lets UI reset scroll
   char     promptId[40];     // pending permission request ID; empty = no prompt
@@ -95,15 +99,21 @@ static void _applyJson(const char* line, TamaState* out) {
   uint32_t bridgeTokens = doc["tokens"] | 0;
   if (doc["tokens"].is<uint32_t>()) statsOnBridgeTokens(bridgeTokens);
   out->tokensToday = doc["tokens_today"] | out->tokensToday;
+  out->tokensUsed  = doc["tokens_used"]  | out->tokensUsed;
+  out->tokensMax   = doc["tokens_max"]   | out->tokensMax;
   const char* m = doc["msg"];
   if (m) { strncpy(out->msg, m, sizeof(out->msg)-1); out->msg[sizeof(out->msg)-1]=0; }
+  const char* mdl = doc["model"];
+  if (mdl) { strncpy(out->model, mdl, sizeof(out->model)-1); out->model[sizeof(out->model)-1]=0; }
+  const char* eff = doc["effort"];
+  if (eff) { strncpy(out->effort, eff, sizeof(out->effort)-1); out->effort[sizeof(out->effort)-1]=0; }
   JsonArray la = doc["entries"];
   if (!la.isNull()) {
     uint8_t n = 0;
     for (JsonVariant v : la) {
       if (n >= 8) break;
       const char* s = v.as<const char*>();
-      strncpy(out->lines[n], s ? s : "", 91); out->lines[n][91]=0;
+      strncpy(out->lines[n], s ? s : "", 159); out->lines[n][159]=0;
       n++;
     }
     if (n != out->nLines || (n > 0 && strcmp(out->lines[n-1], out->msg) != 0)) {

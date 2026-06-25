@@ -37,7 +37,10 @@ class FakeDeviceTransport extends EventEmitter {
   }
 
   writeRaw(str) {
-    if (str.indexOf('"ota_chunk"') === -1) process.stdout.write('  TX> ' + str);
+    if (str.indexOf('"ota_chunk"') === -1) {
+      const out = log.isStderrOnly() ? process.stderr : process.stdout;
+      out.write('  TX> ' + str);
+    }
     // Inspect for a permission prompt and schedule an auto-answer.
     try {
       const obj = JSON.parse(str);

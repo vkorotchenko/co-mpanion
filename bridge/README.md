@@ -43,7 +43,8 @@ node src/index.js [--simulate] [--no-ble] [--fake-device] [--mcp]
 | `--simulate`, `-s` | Use scripted fake activity instead of reading Copilot. |
 | `--no-ble` | Print outgoing JSON lines to the console instead of using BLE. |
 | `--fake-device` | Simulate a connected device that auto-answers prompts (implies `--no-ble`). |
-| `--mcp` | Also run the MCP server (see below). |
+| `--mcp` | Also run the MCP server over HTTP (read + write tools for Copilot). |
+| `--mcp-stdio` | Run the MCP server over stdio (implies `--mcp`); for `type: "local"` registration. Logs go to stderr. |
 | `--help`, `-h` | Usage. |
 
 ### Environment
@@ -51,6 +52,7 @@ node src/index.js [--simulate] [--no-ble] [--fake-device] [--mcp]
 | Var | Default | Meaning |
 | --- | --- | --- |
 | `COPILOT_HOME` | `~/.copilot` | Copilot CLI state directory. |
+| `COMPANION_LOGS_DIR` | `$COPILOT_HOME/logs` | Where the live `process-*.log` lives. Set this if a launcher redirects logs via `--log-dir` (e.g. a wrapper using `~/.local/agency/logs/session_*/`); the tail searches it recursively. |
 | `COMPANION_NAME_PREFIX` | `Copilot` | BLE device-name prefix to scan for. |
 | `COMPANION_MCP_PORT` | `4317` | Port for the MCP HTTP server (`--mcp`). |
 | `COMPANION_LOG` | `info` | `debug` \| `info` \| `warn` \| `error`. |
@@ -67,8 +69,34 @@ permission-prompt UI, so **no firmware change is needed**.
 npm run mcp     # bridge + MCP server on http://127.0.0.1:4317/mcp
 ```
 
-Register it with the Copilot CLI by adding an HTTP server to
+### Option A — start the bridge with your Copilot session (`type: "local"`, recommended)
+
+Register the bridge as a **local (stdio) MCP server**. Copilot CLI then *launches
+the whole bridge itself* (BLE + telemetry + MCP) when a session starts and stops
+it when the session ends — no manual `npm start` needed. Add to
 `~/.copilot/mcp-config.json`:
+
+```json
+{
+  "mcpServers": {
+    "co-mpanion": {
+      "type": "local",
+      "command": "node",
+      "args": ["/abs/path/to/co-mpanion/bridge/src/index.js", "--mcp-stdio"],
+      "tools": ["*"]
+    }
+  }
+}
+```
+
+`--mcp-stdio` speaks JSON-RPC over stdout, so all logs are redirected to stderr.
+Caveat: each session spawns its own bridge, and only one can hold the BLE device
+at a time — fine for a single active session.
+
+### Option B — long-running bridge + HTTP (`type: "http"`)
+
+Start the bridge yourself (`npm run mcp`) and just *connect* Copilot to it. The
+bridge keeps running across sessions and one instance owns the device:
 
 ```json
 {
@@ -100,12 +128,14 @@ result."* The agent then gets a physical button press back as the tool result.
 | Wire field | Source | Notes |
 | --- | --- | --- |
 | `total` | `session-store.db` — sessions with a turn in the last 5 min | "active" sessions |
-| `running` | `logs/process-*.log` grew in the last ~20s | file-growth heuristic (format-independent) |
-| `waiting` | — | always `0`; permission prompts are a later phase |
+| `running` | open `--- ... Sending request to the AI model ---` groups in `logs/process-*.log` | counts in-flight model requests (stack-tracked); short grace window; falls back to file-growth on older log formats |
+| `waiting` | — | always `0`; Copilot's own approval prompts aren't logged at INFO. Use the MCP `companion_confirm` tool to push questions to the device |
 | `completed` | newest turn finished within ~5s and not busy | drives the device "celebrate/heart" |
 | `msg` | derived | `working...` / `idle` / `approval waiting` |
 | `entries` | recent `turns` (newest first) | `HH:MM <first line of your message>` |
-| `tokens` | best-effort parse of log token lines | may be absent; the store has no counter |
+| `tokens` / `tokens_used` / `tokens_max` | `CompactionProcessor: Utilization X% (used/total tokens)` log line | context-window usage; may be absent |
+| `model` | `Using default model: <m>` (and override lines) in the log | e.g. `claude-opus-4.8` |
+| `effort` | `defaultReasoningEffort` / `reasoning_effort` log lines | **debug-level only**, so usually absent at the default INFO log level |
 | `time` / owner | OS clock / `gh api user` → git config → OS user | sent once on connect |
 
 ## How it's wired
@@ -127,15 +157,20 @@ simulate.js ──────────────────────mo
 
 ## Caveats
 
-- **Tokens are best-effort.** The local store has no token counter; we parse
-  what we can from logs and otherwise omit the field.
-- **Live state is heuristic.** "Running" is inferred from the active log file
-  growing, not from a stable API — robust to log *format* changes, but it can't
-  distinguish how many sessions are running (reports `running: 1` when busy).
-- **Approve/deny is not implemented.** The device can already send a permission
-  decision; wiring it back into the Copilot CLI's approval flow is the
-  `permission-spike` phase (see `../plan` / project notes). Decisions received
-  from the device are logged, not acted on.
+- **Tokens are best-effort.** Parsed from the CLI's context-utilization log
+  lines; absent until the first one is seen.
+- **Live state is heuristic.** "Running" tracks open *"Sending request to the AI
+  model"* log groups (accurate, and counts concurrent sub-agent requests), with
+  a short grace window for tool-execution gaps; it falls back to file-growth only
+  if a log predates those markers. It still can't attribute work to a *specific*
+  session when several run at once.
+- **`effort` needs debug logging.** Reasoning effort is only written at the CLI's
+  debug log level, so on a normal INFO session the `effort` field is omitted.
+- **Copilot's own approval prompts aren't auto-detected.** They aren't logged at
+  INFO, so the bridge can't mirror them passively. To get questions on the
+  device, run with `--mcp` and have the agent call `companion_confirm` (see the
+  bidirectional section above and the repo `AGENTS.md`). Device decisions flow
+  back as the tool result.
 
 ## Smoke test (no hardware)
 

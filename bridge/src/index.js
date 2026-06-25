@@ -8,7 +8,7 @@ const { CopilotSource } = require('./copilot/source');
 const { SimulateSource } = require('./simulate');
 
 function parseArgs(argv) {
-  const a = { simulate: false, ble: true, fakeDevice: false, mcp: false, flash: null, help: false };
+  const a = { simulate: false, ble: true, fakeDevice: false, mcp: false, mcpStdio: false, flash: null, help: false };
   const rest = argv.slice(2);
   for (let i = 0; i < rest.length; i++) {
     const arg = rest[i];
@@ -16,6 +16,7 @@ function parseArgs(argv) {
     else if (arg === '--no-ble') a.ble = false;
     else if (arg === '--fake-device') { a.fakeDevice = true; a.ble = false; }
     else if (arg === '--mcp') a.mcp = true;
+    else if (arg === '--mcp-stdio') { a.mcp = true; a.mcpStdio = true; }
     else if (arg === '--flash') a.flash = rest[++i];
     else if (arg === '--help' || arg === '-h') a.help = true;
     else if (a.flash === undefined) a.flash = arg;   // bare path after --flash
@@ -33,12 +34,18 @@ Options:
       --no-ble       Don't use Bluetooth; print outgoing lines to the console.
       --fake-device  Simulate a connected device that auto-answers prompts
                      (implies --no-ble; for testing confirm/MCP/OTA flows).
-      --mcp          Also run the MCP server (read+write tools for Copilot).
+      --mcp          Also run the MCP server over HTTP (read+write tools).
+      --mcp-stdio    Run the MCP server over stdio (implies --mcp). Use this when
+                     Copilot CLI launches the bridge as a "local" MCP server;
+                     all logs are redirected to stderr.
       --flash <bin>  Push a firmware .bin to the device over BLE (OTA), then exit.
   -h, --help         Show this help.
 
 Env:
   COPILOT_HOME           Copilot state dir (default ~/.copilot)
+  COMPANION_LOGS_DIR     Dir holding the live process-*.log (default
+                         $COPILOT_HOME/logs; set if a launcher redirects
+                         logs via --log-dir; searched recursively)
   COMPANION_NAME_PREFIX  BLE device name prefix to scan for (default "Copilot")
   COMPANION_MCP_PORT     MCP HTTP port (default 4317)
   COMPANION_OTA_CHUNK    OTA chunk size in bytes (default 384)
@@ -67,6 +74,10 @@ async function main() {
 
   const transport = makeTransport(args);
 
+  // stdio MCP owns stdout for JSON-RPC; route every log line to stderr so we
+  // never corrupt the framing. Must happen before anything logs.
+  if (args.mcpStdio) log.setStderrOnly(true);
+
   // --- OTA flash mode: connect, push the firmware, exit --------------------
   if (args.flash) {
     await runFlash(transport, args.flash);
@@ -83,7 +94,8 @@ async function main() {
   if (args.mcp) {
     const { CompanionMcpServer } = require('./mcp/server');
     mcp = new CompanionMcpServer(bridge, cfg);
-    await mcp.start();
+    if (args.mcpStdio) await mcp.startStdio();
+    else await mcp.start();
   }
 
   bridge.start();

@@ -37,22 +37,22 @@ function now() {
 }
 
 const SCENARIOS = [
-  () => ({ total: 0, running: 0, waiting: 0, completed: false, msg: 'idle', entries: [], tokens: 12000 }),
+  () => ({ total: 0, running: 0, waiting: 0, completed: false, msg: 'idle', entries: [], tokens: 12000, model: 'claude-opus-4.8', effort: 'high', tokensUsed: 12000, tokensMax: 168000 }),
   () => ({
-    total: 3, running: 1, waiting: 0, completed: false, msg: 'working...',
+    total: 3, running: 2, waiting: 0, completed: false, msg: 'working...',
     entries: [`${now()} run the tests`, `${now()} fix the bridge`, `${now()} read config.js`],
-    tokens: 89000,
+    tokens: 89000, model: 'claude-opus-4.8', effort: 'high', tokensUsed: 89000, tokensMax: 168000,
   }),
   () => ({
     total: 2, running: 0, waiting: 1, completed: false, msg: 'approval waiting',
     entries: [`${now()} git push origin main`],
-    tokens: 104000,
+    tokens: 104000, model: 'claude-sonnet-4.6', effort: 'medium', tokensUsed: 104000, tokensMax: 168000,
     prompt: { id: 'sim-req-1', tool: 'Bash', hint: 'git push origin main' },
   }),
   () => ({
     total: 1, running: 0, waiting: 0, completed: true, msg: 'done',
     entries: [`${now()} all tests passed`],
-    tokens: 142000,
+    tokens: 142000, model: 'claude-sonnet-4.6', effort: 'medium', tokensUsed: 142000, tokensMax: 168000,
   }),
 ];
 

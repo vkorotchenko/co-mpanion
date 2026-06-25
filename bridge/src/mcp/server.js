@@ -8,15 +8,20 @@ const {
 } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const log = require('../util/log');
 
-// HTTP MCP server hosted by the bridge. Registered in Copilot CLI's
-// mcp-config.json as a `type: "http"` server. Exposes the device as a set of
-// tools the agent can call:
+// MCP server hosted by the bridge. Exposes the device as a set of tools the
+// agent can call:
 //
 //   companion_status  (read)  -> current Copilot/device activity snapshot
 //   companion_notify  (write) -> flash a message on the device screen
 //   companion_confirm (write) -> ask the user a yes/no on the device and BLOCK
 //                                until they press approve/deny (reuses the
 //                                firmware's permission-prompt UI)
+//
+// Two transports are supported:
+//   - HTTP (start):      registered in mcp-config.json as `type: "http"`; the
+//                        bridge must already be running.
+//   - stdio (startStdio): registered as `type: "local"`; Copilot CLI spawns the
+//                        whole bridge per session and talks over stdin/stdout.
 //
 // This is the supported, stable "read + write" path: the agent routes a
 // decision through companion_confirm and gets the physical button press back as
@@ -27,6 +32,21 @@ class CompanionMcpServer {
     this._port = cfg.mcp.port;
     this._host = cfg.mcp.host;
     this._http = null;
+    this._stdioServer = null;
+    this._stdioTransport = null;
+  }
+
+  // stdio transport: one persistent server bound to this process's stdin/stdout.
+  // Copilot CLI launches the bridge as a `local` MCP server and speaks JSON-RPC
+  // over the pipe, so nothing else may write to stdout (logs go to stderr).
+  async startStdio() {
+    const {
+      StdioServerTransport,
+    } = require('@modelcontextprotocol/sdk/server/stdio.js');
+    this._stdioServer = this._buildServer();
+    this._stdioTransport = new StdioServerTransport();
+    await this._stdioServer.connect(this._stdioTransport);
+    log.info('MCP server attached to stdio (local transport).');
   }
 
   async start() {
@@ -167,6 +187,11 @@ class CompanionMcpServer {
     if (this._http) {
       await new Promise((r) => this._http.close(r));
       this._http = null;
+    }
+    if (this._stdioServer) {
+      try { await this._stdioServer.close(); } catch { /* noop */ }
+      this._stdioServer = null;
+      this._stdioTransport = null;
     }
   }
 }

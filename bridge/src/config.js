@@ -10,7 +10,12 @@ module.exports = {
   // --- Copilot CLI local state ---------------------------------------------
   copilotHome: COPILOT_HOME,
   sessionStoreDb: path.join(COPILOT_HOME, 'session-store.db'),
-  logsDir: path.join(COPILOT_HOME, 'logs'),
+  settingsJson: path.join(COPILOT_HOME, 'settings.json'),
+  // Where the live `process-*.log` lives. Defaults to ~/.copilot/logs, but a
+  // launcher (e.g. an `agency`/wrapper that passes `--log-dir`) may redirect
+  // it elsewhere; point COMPANION_LOGS_DIR at that root. The tail searches it
+  // recursively, so a per-session subdirectory layout works too.
+  logsDir: process.env.COMPANION_LOGS_DIR || path.join(COPILOT_HOME, 'logs'),
 
   // --- BLE / Nordic UART Service -------------------------------------------
   // The device advertises NUS; the bridge is the central. UUIDs are written

@@ -13,6 +13,7 @@
     "simulate": "node src/index.js --simulate",
     "dry-run": "node src/index.js --simulate --no-ble",
     "mcp": "node src/index.js --mcp",
+    "mcp-stdio": "node src/index.js --mcp-stdio",
     "flash": "node src/index.js --flash",
     "test": "node test/mcp-roundtrip.js && node test/ota-flash.js"
   },

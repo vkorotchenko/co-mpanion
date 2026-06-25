@@ -6,11 +6,13 @@
 // expects, and detecting whether a new snapshot is worth sending.
 
 // Firmware field limits (firmware/src/data.h):
-//   msg        char[24]    -> 23 usable chars
-//   entries    char[8][92] -> up to 8 lines, 91 usable chars each
+//   msg        char[24]     -> 23 usable chars
+//   entries    char[8][160] -> up to 8 lines, 159 usable chars each
 const MSG_MAX = 23;
-const ENTRY_MAX = 91;
+const ENTRY_MAX = 159;
 const ENTRIES_MAX = 8;
+const MODEL_MAX = 23;
+const EFFORT_MAX = 9;
 
 function clamp(str, max) {
   if (str == null) return '';
@@ -42,6 +44,14 @@ function buildSnapshot(model) {
   if (Number.isFinite(model.tokensToday)) {
     snap.tokens_today = clampInt(model.tokensToday, 0xffffffff);
   }
+  if (Number.isFinite(model.tokensUsed)) {
+    snap.tokens_used = clampInt(model.tokensUsed, 0xffffffff);
+  }
+  if (Number.isFinite(model.tokensMax)) {
+    snap.tokens_max = clampInt(model.tokensMax, 0xffffffff);
+  }
+  if (model.model) snap.model = clamp(model.model, MODEL_MAX); // firmware char[24]
+  if (model.effort) snap.effort = clamp(model.effort, EFFORT_MAX); // firmware char[10]
   if (model.prompt && model.prompt.id) {
     snap.prompt = {
       id: String(model.prompt.id),
@@ -70,4 +80,4 @@ function equal(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-module.exports = { buildSnapshot, serialize, equal, MSG_MAX, ENTRY_MAX, ENTRIES_MAX };
+module.exports = { buildSnapshot, serialize, equal, MSG_MAX, ENTRY_MAX, ENTRIES_MAX, MODEL_MAX, EFFORT_MAX };

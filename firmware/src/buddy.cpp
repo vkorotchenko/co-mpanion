@@ -154,6 +154,17 @@ void buddySetPeek(bool peek) {
   buddyInvalidate();
 }
 
+// Set an explicit integer scale (1–3). The idle clock uses 3× for a larger
+// pet; home/peek use 1–2× via buddySetPeek. Geometry scales linearly, so the
+// clear strip and centering follow automatically.
+void buddySetScale(uint8_t scale) {
+  if (scale < 1) scale = 1;
+  if (scale > 3) scale = 3;
+  if (scale == _scale) return;
+  _scale = scale;
+  buddyInvalidate();
+}
+
 // One-shot render to an arbitrary LovyanGFX surface (the display for the
 // charging clock). Bypasses tick gating and the sprite fillRect — caller owns
 // clearing. Advances the frame counter so animation runs even when

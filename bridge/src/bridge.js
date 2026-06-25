@@ -114,8 +114,14 @@ class Bridge {
   // --- snapshot send -------------------------------------------------------
 
   _composed() {
-    if (!this._latest) return null;
-    const snap = Object.assign({}, this._latest);
+    // Normally we layer the prompt/notice over the latest telemetry snapshot.
+    // If telemetry hasn't produced one yet, still emit a minimal base so a
+    // confirm()/notify() is never silently dropped for lack of a snapshot.
+    const base = this._latest
+      ? Object.assign({}, this._latest)
+      : { total: 0, running: 0, waiting: 0, completed: false, msg: 'idle', entries: [] };
+    if (!this._latest && !this._activePrompt && !this._notice) return null;
+    const snap = base;
     if (this._activePrompt) snap.prompt = this._activePrompt;
     if (this._notice && Date.now() < this._noticeUntil) snap.msg = this._notice;
     return snap;

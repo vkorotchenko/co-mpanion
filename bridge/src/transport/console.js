@@ -29,7 +29,8 @@ class ConsoleTransport extends EventEmitter {
   }
 
   writeRaw(str) {
-    process.stdout.write('  TX> ' + str);
+    const out = log.isStderrOnly() ? process.stderr : process.stdout;
+    out.write('  TX> ' + str);
     return Promise.resolve(true);
   }
 

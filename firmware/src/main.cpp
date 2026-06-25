@@ -288,19 +288,51 @@ static void clockRefreshRtc() {
 }
 static uint8_t clockDow() { return ((_clk.date.weekDay % 7) + 7) % 7; }
 
+// Compact session details (model / effort / context tokens) centered at y.
+// Used on the idle clock screen, where time is de-emphasized in its favor.
+static void drawSessionInfo(const Palette& p, int y) {
+  if (tama.model[0]) {
+    spr.setTextSize(1); spr.setTextColor(p.text, p.bg);
+    spr.drawString(tama.model, CX, y);
+    y += 13;
+  }
+  char info[24];
+  if (tama.tokensMax > 0) {
+    unsigned uk = (tama.tokensUsed + 500) / 1000;
+    unsigned mk = (tama.tokensMax + 500) / 1000;
+    if (tama.effort[0]) snprintf(info, sizeof(info), "%s  %uk/%uk", tama.effort, uk, mk);
+    else                snprintf(info, sizeof(info), "%uk/%uk", uk, mk);
+  } else if (tama.tokensUsed > 0) {
+    unsigned uk = (tama.tokensUsed + 500) / 1000;
+    if (tama.effort[0]) snprintf(info, sizeof(info), "%s  %uk", tama.effort, uk);
+    else                snprintf(info, sizeof(info), "%uk tok", uk);
+  } else if (tama.effort[0]) {
+    snprintf(info, sizeof(info), "%s", tama.effort);
+  } else {
+    info[0] = 0;
+  }
+  if (info[0]) {
+    spr.setTextSize(1); spr.setTextColor(p.textDim, p.bg);
+    spr.drawString(info, CX, y);
+  }
+}
+
 static void drawClock() {
   const Palette& p = characterPalette();
-  char hm[6]; snprintf(hm, sizeof(hm), "%02u:%02u", _clk.time.hours, _clk.time.minutes);
-  char ss[4]; snprintf(ss, sizeof(ss), ":%02u", _clk.time.seconds);
+  // Date+time pinned to the very top (above the full-size pet); session info
+  // (model / effort / tokens) sits in a band at the very bottom.
   uint8_t mi = (_clk.date.month >= 1 && _clk.date.month <= 12) ? _clk.date.month - 1 : 0;
-  char dl[14]; snprintf(dl, sizeof(dl), "%s %s %u", DOW[clockDow()], MON[mi], _clk.date.date);
+  char dt[28]; snprintf(dt, sizeof(dt), "%s %s %u  %02u:%02u",
+                        DOW[clockDow()], MON[mi], _clk.date.date,
+                        _clk.time.hours, _clk.time.minutes);
 
-  // lower-center band; the pet peeks above via peek mode
-  spr.fillRect(0, 120, W, H - 120, p.bg);
   spr.setTextDatum(MC_DATUM);
-  spr.setTextSize(4); spr.setTextColor(p.text, p.bg);    spr.drawString(hm, CX, 165);
-  spr.setTextSize(2); spr.setTextColor(p.textDim, p.bg); spr.drawString(ss, CX, 198);
-  spr.setTextSize(1);                                     spr.drawString(dl, CX, 218);
+  // Top strip: date+time, small + dim, nudged down from the very edge.
+  spr.fillRect(0, 0, W, 28, p.bg);
+  spr.setTextSize(1); spr.setTextColor(p.textDim, p.bg); spr.drawString(dt, CX, 15);
+  // Bottom band: model / effort / tokens, below the larger (3×) pet (~y182).
+  spr.fillRect(0, 186, W, H - 186, p.bg);
+  drawSessionInfo(p, 198);
   spr.setTextDatum(TL_DATUM);
 }
 
@@ -510,6 +542,7 @@ void drawPet() {
 // highlighted choice (encoder-selectable) gets a bright border.
 static const int APPR_BTN_Y = 188, APPR_BTN_H = 34, APPR_BTN_W = 74;
 static const int APPR_DENY_CX = 76, APPR_APPR_CX = 164;
+static uint8_t wrapInto(const char* in, char out[][24], uint8_t maxRows, uint8_t width);
 static void drawApproval() {
   const Palette& p = characterPalette();
   spr.fillRect(0, 96, W, H - 96, p.bg);
@@ -521,12 +554,15 @@ static void drawApproval() {
   spr.setTextColor(p.text, p.bg);
   int toolLen = strlen(tama.promptTool);
   spr.setTextSize(toolLen <= 11 ? 2 : 1);
-  spr.drawString(tama.promptTool, CX, 134);
+  spr.drawString(tama.promptTool, CX, 132);
   spr.setTextSize(1);
   spr.setTextColor(p.textDim, p.bg);
   if (tama.promptHint[0]) {
-    char h[22]; snprintf(h, sizeof(h), "%.21s", tama.promptHint);
-    spr.drawString(h, CX, 156);
+    // Word-wrap the hint onto up to two lines instead of clipping it — the
+    // detail can be up to 43 chars and a single line only fit ~21.
+    char wrapped[2][24];
+    uint8_t rows = wrapInto(tama.promptHint, wrapped, 2, 22);
+    for (uint8_t i = 0; i < rows; i++) spr.drawString(wrapped[i], CX, 150 + i * 11);
   }
   spr.setTextDatum(TL_DATUM);
 
@@ -579,41 +615,60 @@ static uint8_t wrapInto(const char* in, char out[][24], uint8_t maxRows, uint8_t
   return row;
 }
 
+// Max wrapped transcript lines we buffer for scrolling. Longer (now
+// untruncated) prompts wrap into several rows each, so keep generous headroom.
+static const uint8_t HUD_ROWS_MAX = 48;
+
 void drawHUD() {
   if (tama.promptId[0]) { drawApproval(); return; }
   const Palette& p = characterPalette();
-  const int SHOW = 3, LH = 12, WIDTH = 20;
-  const int BASE = 168;        // first line y; centered band in the lower half
+  const int LH = 12, WIDTH = 20;
   spr.fillRect(0, 150, W, H - 150, p.bg);
   spr.setTextSize(1);
 
   if (tama.lineGen != lastLineGen) { msgScroll = 0; lastLineGen = tama.lineGen; wake(); }
 
+  // Two layouts. Not scrolled: a compact "live" ticker up top of the lower band,
+  // with the active model/effort/tokens pinned to the very bottom so they stay
+  // visible during a session (not just on the idle clock). Scrolled back: a
+  // taller reader takes the whole band and shows the full (untruncated) text of
+  // past turns, paging line-by-line; a touch tap closes it.
+  const bool reading = msgScroll > 0;
+  const int SHOW = reading ? 6 : 3;
+  const int BASE = reading ? 150 : 160;
+
   if (tama.nLines == 0) {
     cline(BASE + LH, p.text, p.bg, "%s", tama.msg);
-    return;
+  } else {
+    static char disp[HUD_ROWS_MAX][24];
+    static uint8_t srcOf[HUD_ROWS_MAX];
+    uint8_t nDisp = 0;
+    for (uint8_t i = 0; i < tama.nLines && nDisp < HUD_ROWS_MAX; i++) {
+      uint8_t got = wrapInto(tama.lines[i], &disp[nDisp], HUD_ROWS_MAX - nDisp, WIDTH);
+      for (uint8_t j = 0; j < got; j++) srcOf[nDisp + j] = i;
+      nDisp += got;
+    }
+
+    uint8_t maxBack = (nDisp > SHOW) ? (nDisp - SHOW) : 0;
+    if (msgScroll > maxBack) msgScroll = maxBack;
+    int end = (int)nDisp - msgScroll;
+    int start = end - SHOW; if (start < 0) start = 0;
+    uint8_t newest = tama.nLines - 1;
+    for (int i = 0; start + i < end; i++) {
+      uint8_t row = start + i;
+      bool fresh = (srcOf[row] == newest) && (msgScroll == 0);
+      cline(BASE + i * LH, fresh ? p.text : p.textDim, p.bg, "%s", disp[row]);
+    }
+    if (reading) cline(BASE + SHOW * LH, p.body, p.bg, "tap to exit  -%u", msgScroll);
   }
 
-  static char disp[32][24];
-  static uint8_t srcOf[32];
-  uint8_t nDisp = 0;
-  for (uint8_t i = 0; i < tama.nLines && nDisp < 32; i++) {
-    uint8_t got = wrapInto(tama.lines[i], &disp[nDisp], 32 - nDisp, WIDTH);
-    for (uint8_t j = 0; j < got; j++) srcOf[nDisp + j] = i;
-    nDisp += got;
+  // Bottom band: model / effort / tokens, always shown on the live (non-reading)
+  // home view so the active session's model is visible while working.
+  if (!reading) {
+    spr.setTextDatum(MC_DATUM);
+    drawSessionInfo(p, 202);
+    spr.setTextDatum(TL_DATUM);
   }
-
-  uint8_t maxBack = (nDisp > SHOW) ? (nDisp - SHOW) : 0;
-  if (msgScroll > maxBack) msgScroll = maxBack;
-  int end = (int)nDisp - msgScroll;
-  int start = end - SHOW; if (start < 0) start = 0;
-  uint8_t newest = tama.nLines - 1;
-  for (int i = 0; start + i < end; i++) {
-    uint8_t row = start + i;
-    bool fresh = (srcOf[row] == newest) && (msgScroll == 0);
-    cline(BASE + i * LH, fresh ? p.text : p.textDim, p.bg, "%s", disp[row]);
-  }
-  if (msgScroll > 0) cline(BASE + SHOW * LH, p.body, p.bg, "-%u", msgScroll);
 }
 
 // Pulsing attention ring at the screen edge (replaces the Stick's red LED).
@@ -793,9 +848,9 @@ void loop() {
       beep(1200, 80);
       displayMode = DISP_NORMAL;
       menuOpen = settingsOpen = resetOpen = false;
-      applyDisplayMode();
-      characterInvalidate();
-      if (buddyMode) buddyInvalidate();
+      // Pet placement is handled by the unified "peek" block below, which
+      // pins the pet above the approval panel (like the charging clock) so
+      // its animation never repaints into the panel and flickers.
     }
   }
 
@@ -858,9 +913,9 @@ void loop() {
     } else if (displayMode == DISP_PET) {
       petPage = (petPage + (enc > 0 ? 1 : PET_PAGES - 1)) % PET_PAGES; applyDisplayMode(); beep(1800, 20);
     } else {
-      // home: scroll transcript
+      // home: scroll transcript (line-by-line through the wrapped history)
       int ns = (int)msgScroll + (enc > 0 ? 1 : -1);
-      if (ns < 0) ns = 0; if (ns > 30) ns = 30;
+      if (ns < 0) ns = 0; if (ns > HUD_ROWS_MAX - 1) ns = HUD_ROWS_MAX - 1;
       msgScroll = ns; beep(1500, 15);
     }
   }
@@ -891,6 +946,11 @@ void loop() {
     if (touchInButton(tx, ty, APPR_APPR_CX)) doApprove();
     else if (touchInButton(tx, ty, APPR_DENY_CX)) doDeny();
   }
+  // Home: a tap closes the scrolled-back transcript reader and returns to live.
+  if (touched && !inPrompt && !menuOpen && !settingsOpen && !resetOpen &&
+      displayMode == DISP_NORMAL && msgScroll > 0) {
+    msgScroll = 0; beep(1500, 20);
+  }
 
   static uint32_t lastPasskey = 0;
   uint32_t pk = blePasskey();
@@ -906,9 +966,34 @@ void loop() {
                && !menuOpen && !settingsOpen && !resetOpen && !inPrompt
                && tama.sessionsRunning == 0 && tama.sessionsWaiting == 0
                && dataRtcValid();
+  // The pet only "peeks" (shrinks to the top band) for the approval prompt, so
+  // its animation stays above the panel and never flickers. On the clock the
+  // pet now stays full size (2×) — date/time sits above it, session info below.
+  bool petPeek = tama.promptId[0];
+  static bool wasPeek = false;
+  if (petPeek != wasPeek) {
+    if (petPeek) {
+      // Entering peek: the pet shrinks to the top band. A prior full-size (2×)
+      // body is taller than the 1× peek clear strip, so wipe the whole sprite
+      // to avoid leaving the lower half of the old body behind the panel.
+      characterSetPeek(true);
+      buddySetPeek(true);
+      spr.fillSprite(0x0000);
+    } else {
+      applyDisplayMode();   // restore full-size placement and clear
+    }
+    characterInvalidate();
+    if (buddyMode) buddyInvalidate();
+    wasPeek = petPeek;
+  }
+  // Entering/leaving the clock overlay: the idle clock uses a larger (3×) pet,
+  // so set/restore the scale and clear once so the top date band and the bottom
+  // info band don't leave stale text when switching to/from the home HUD.
   static bool wasClocking = false;
   if (clocking != wasClocking) {
-    if (clocking) characterSetPeek(true); else applyDisplayMode();
+    if (clocking) { if (buddyMode) buddySetScale(3); }  // bigger pet on the clock
+    else applyDisplayMode();                            // restore home 2× placement
+    spr.fillSprite(0x0000);
     characterInvalidate();
     if (buddyMode) buddyInvalidate();
     wasClocking = clocking;
@@ -949,6 +1034,7 @@ void loop() {
   // --- overlays ------------------------------------------------------------
   if (!screenOff) {
     if (blePasskey()) drawPasskey();
+    else if (tama.promptId[0]) drawApproval();   // modal: a pending question always wins
     else if (clocking) drawClock();
     else if (displayMode == DISP_INFO) drawInfo();
     else if (displayMode == DISP_PET) drawPet();
@@ -963,7 +1049,10 @@ void loop() {
   }
 
   // --- auto screen-off (battery only) -------------------------------------
-  if (!screenOff && !inPrompt && !_onUsb && millis() - lastInteractMs > SCREEN_OFF_MS) {
+  // Stay awake while charging, while a prompt is up, or while a BT host is
+  // connected and streaming (so the buddy keeps watching during a session).
+  if (!screenOff && !inPrompt && !_onUsb && !dataBtActive() &&
+      millis() - lastInteractMs > SCREEN_OFF_MS) {
     hwScreenOff();
     screenOff = true;
   }
