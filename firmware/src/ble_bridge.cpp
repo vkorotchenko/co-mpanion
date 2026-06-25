@@ -5,7 +5,14 @@
 #include <BLESecurity.h>
 #include <BLE2902.h>
 #include <Arduino.h>
+#include <Preferences.h>
 #include <string.h>
+
+// Bump when the BLE security model changes so stale bonds from an older
+// model (e.g. the old MITM/passkey pairing) are wiped once on first boot
+// after the upgrade, instead of leaving a half-bonded state that silently
+// drops the link.
+#define BLE_SEC_MODEL 2
 
 // Nordic UART Service UUIDs — every BLE serial example uses these, so
 // existing tools (nRF Connect, bluefy, Web Bluetooth examples) can talk to
@@ -66,10 +73,11 @@ class ServerCallbacks : public BLEServerCallbacks {
   }
 };
 
-// LE Secure Connections, passkey-entry: we are DisplayOnly, the central
-// is KeyboardOnly. The stack picks a random 6-digit passkey, calls
-// onPassKeyNotify here, and the user types it on the desktop. main.cpp
-// polls blePasskey() to render it.
+// Just Works pairing: both sides advertise no IO capability, so the stack
+// bonds silently (encryption, no MITM) with no passkey to enter. The bridge
+// (noble) drives the whole connection — there's no on-device/desktop pairing
+// dance. onPassKeyNotify therefore never fires under this model; it's kept
+// harmless so a future MITM model can reuse the same callbacks.
 class SecCallbacks : public BLESecurityCallbacks {
   uint32_t onPassKeyRequest() override { return 0; }
   bool onConfirmPIN(uint32_t) override { return false; }
@@ -91,7 +99,7 @@ void bleInit(const char* deviceName) {
   // Request the biggest MTU we can get. macOS negotiates to 185 typically.
   BLEDevice::setMTU(517);
 
-  BLEDevice::setEncryptionLevel(ESP_BLE_SEC_ENCRYPT_MITM);
+  BLEDevice::setEncryptionLevel(ESP_BLE_SEC_ENCRYPT);
   BLEDevice::setSecurityCallbacks(new SecCallbacks());
 
   server = BLEDevice::createServer();
@@ -118,8 +126,8 @@ void bleInit(const char* deviceName) {
   svc->start();
 
   BLESecurity* sec = new BLESecurity();
-  sec->setAuthenticationMode(ESP_LE_AUTH_REQ_SC_MITM_BOND);
-  sec->setCapability(ESP_IO_CAP_OUT);
+  sec->setAuthenticationMode(ESP_LE_AUTH_REQ_SC_BOND);
+  sec->setCapability(ESP_IO_CAP_NONE);
   sec->setKeySize(16);
   sec->setInitEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
   sec->setRespEncryptionKey(ESP_BLE_ENC_KEY_MASK | ESP_BLE_ID_KEY_MASK);
@@ -131,6 +139,18 @@ void bleInit(const char* deviceName) {
   adv->setMaxPreferred(0x12);
   BLEDevice::startAdvertising();
   Serial.printf("[ble] advertising as '%s'\n", deviceName);
+
+  // One-time migration: if the last boot used a different security model,
+  // wipe stored bonds so a stale MITM bond can't collide with the new
+  // Just Works pairing (which otherwise shows up as a silent connect/drop).
+  Preferences prefs;
+  prefs.begin("blesec", false);
+  if (prefs.getUChar("model", 0) != BLE_SEC_MODEL) {
+    bleClearBonds();
+    prefs.putUChar("model", BLE_SEC_MODEL);
+    Serial.printf("[ble] security model -> %d, bonds reset\n", BLE_SEC_MODEL);
+  }
+  prefs.end();
 }
 
 bool bleConnected() { return connected; }

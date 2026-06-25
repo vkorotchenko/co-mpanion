@@ -70,9 +70,23 @@ class BleCentral extends EventEmitter {
     this._peripheral = peripheral;
     try {
       await this._noble.stopScanningAsync();
+      // noble caches Peripheral objects by id, so a failed connect attempt can
+      // leave a stale 'disconnect' listener behind; clear them before binding
+      // a fresh one (otherwise they accumulate -> MaxListeners warning).
+      peripheral.removeAllListeners('disconnect');
       peripheral.once('disconnect', () => this._onDisconnect());
-      await peripheral.connectAsync();
-      await this._bindCharacteristics(peripheral);
+      // connectAsync (and characteristic discovery) can hang indefinitely —
+      // e.g. a stale OS-level bond stalls the encryption handshake forever.
+      // Bound the whole bring-up so the bridge recovers by tearing down and
+      // rescanning instead of freezing.
+      await this._withTimeout(
+        (async () => {
+          await peripheral.connectAsync();
+          await this._bindCharacteristics(peripheral);
+        })(),
+        this._cfg.connectTimeoutMs,
+        'connect timed out'
+      );
       if (typeof peripheral.mtu === 'number' && peripheral.mtu > 3) {
         this._chunk = peripheral.mtu - 3;
       }
@@ -80,8 +94,20 @@ class BleCentral extends EventEmitter {
       this.emit('connected', name);
     } catch (err) {
       log.error('Connect failed:', err.message);
+      try { await peripheral.disconnectAsync(); } catch { /* noop */ }
       this._onDisconnect();
     }
+  }
+
+  // Reject `promise` after `ms` if it hasn't settled, so a hung BLE bring-up
+  // can't wedge the bridge. ms<=0 disables the bound.
+  _withTimeout(promise, ms, msg) {
+    if (!ms || ms <= 0) return promise;
+    let timer;
+    const timeout = new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error(msg)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
   }
 
   async _bindCharacteristics(peripheral) {

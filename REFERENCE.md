@@ -279,6 +279,39 @@ writing — the desktop sends whatever filenames are in the dropped
 folder, so reject `..` and absolute paths unless your filesystem holds
 nothing you'd mind overwritten.
 
+### Reconnecting after reflashing
+
+If the device won't reconnect after a firmware flash — it appears to
+connect for a moment then immediately drops, looping forever — you have a
+**stale bond**. A full chip-erase (and sometimes OTA) wipes the bond keys
+stored in the ESP32's NVS, but the host still has the old pairing and
+tries to encrypt the link with a key the device no longer holds. The
+device fails authentication, force-disconnects, the host instantly
+reconnects with the same stale key, and the loop repeats. The host's
+cached GATT table can also go stale across a flash that changes the
+attribute layout.
+
+To recover, clear the bond on **both** sides and re-pair:
+
+1. **Host:** *Forget* the `Copilot-*` device in the OS Bluetooth settings.
+   BLE-only peripherals sometimes don't appear there — if so, reset the
+   Bluetooth stack (toggle Bluetooth off/on; on macOS `sudo pkill
+   bluetoothd`, which auto-restarts). This drops the stale LTK and the
+   cached GATT table.
+2. **Device:** erase its bonds too, via the factory-reset flow or a
+   `{"cmd":"unpair"}` command, so nothing lingers.
+3. Reconnect. The device should show a **fresh 6-digit passkey** and the
+   host should prompt you to enter it. A passkey prompt means the desync
+   is cleared.
+
+A serial monitor on the device is the fastest diagnostic: `[ble] auth
+FAIL` means the host is still using the stale key (forget it again),
+`[ble] auth ok` means the link re-paired cleanly.
+
+To avoid the desync, *Forget* the device on the host before reflashing,
+or avoid a full chip-erase — a plain app upload and OTA normally preserve
+NVS bonds; only an `erase` wipes them.
+
 ## Availability
 
 The BLE API is only available when the desktop apps are in developer mode

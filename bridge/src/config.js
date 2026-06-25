@@ -28,6 +28,10 @@ module.exports = {
     // Fallback write chunk size when the negotiated MTU is unknown (default
     // ATT MTU 23 -> 20 usable payload bytes).
     fallbackChunk: 20,
+    // Abort a connect/characteristic-discovery attempt that hasn't completed
+    // in this long and rescan. Guards against a hung BLE bring-up (e.g. a
+    // stale OS bond stalling the encryption handshake) wedging the bridge.
+    connectTimeoutMs: parseInt(process.env.COMPANION_CONNECT_TIMEOUT_MS || '15000', 10),
   },
 
   // --- Timing --------------------------------------------------------------
