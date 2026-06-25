@@ -186,6 +186,11 @@ class Bridge {
         log.info(`Device answered ${msg.id}: ${decision}`);
         if (this._activePrompt && this._activePrompt.id === msg.id) this._clearPrompt();
         pending.resolve({ decision });
+      } else if (String(msg.id).startsWith('perm-')) {
+        // Passively-detected Copilot prompt: the buttons can't answer the real
+        // terminal prompt, so a press just acknowledges/dismisses on-device.
+        // The prompt clears authoritatively when `permission.completed` lands.
+        log.debug(`Device acknowledged passive prompt ${msg.id} (answer in terminal).`);
       } else {
         log.debug(`Permission reply for unknown id ${msg.id} (ignored).`);
       }

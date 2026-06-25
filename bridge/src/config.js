@@ -16,6 +16,22 @@ module.exports = {
   // it elsewhere; point COMPANION_LOGS_DIR at that root. The tail searches it
   // recursively, so a per-session subdirectory layout works too.
   logsDir: process.env.COMPANION_LOGS_DIR || path.join(COPILOT_HOME, 'logs'),
+  // Where the CLI writes per-session `events.jsonl` (one JSON event per line).
+  // Used to passively detect Copilot's built-in permission prompts so the buddy
+  // lights up when a session is waiting on you. Defaults to
+  // ~/.copilot/session-state; override with COMPANION_SESSION_STATE_DIR.
+  sessionStateDir:
+    process.env.COMPANION_SESSION_STATE_DIR ||
+    path.join(COPILOT_HOME, 'session-state'),
+
+  // --- Permission-prompt watch ---------------------------------------------
+  perm: {
+    // Only scan event files modified within this window (plus any still holding
+    // an unresolved request, whose mtime freezes while it waits).
+    recentWindowMs: parseInt(process.env.COMPANION_PERM_WINDOW_MS || String(30 * 60 * 1000), 10),
+    // Suppress requests younger than this so fast auto-approvals don't flash.
+    minAgeMs: parseInt(process.env.COMPANION_PERM_MIN_AGE_MS || '1500', 10),
+  },
 
   // --- BLE / Nordic UART Service -------------------------------------------
   // The device advertises NUS; the bridge is the central. UUIDs are written

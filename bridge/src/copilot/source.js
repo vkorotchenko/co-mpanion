@@ -4,6 +4,7 @@ const fs = require('fs');
 const EventEmitter = require('events');
 const { CopilotStore } = require('./store');
 const { CopilotLogTail } = require('./logtail');
+const { PermissionWatch } = require('./permwatch');
 const log = require('../util/log');
 
 // Read the user's configured model/effort from ~/.copilot/settings.json. The
@@ -52,6 +53,7 @@ class CopilotSource extends EventEmitter {
     this._cfg = cfg;
     this._store = new CopilotStore(cfg);
     this._log = new CopilotLogTail(cfg);
+    this._perm = new PermissionWatch(cfg);
     this._readSettings = makeSettingsReader(cfg.settingsJson);
     this._timer = null;
     // Celebration latch (see _buildModel): the newest turn timestamp we've
@@ -79,10 +81,16 @@ class CopilotSource extends EventEmitter {
     // latest log bytes. (Without this the tail never reads and the device stays
     // permanently "idle" with no tokens.)
     this._log.update();
+    this._perm.update();
     const running = this._log.runningCount(cfg.busyWindowMs);
     const storeTotal = this._store.countActiveSessions(cfg.activeWindowMs);
     const total = Math.max(storeTotal, running);
-    const waiting = 0; // permission prompts are a deferred phase
+    // Passive detection of Copilot's built-in permission prompts: when a session
+    // is blocked waiting on the user, surface it as the device prompt so the
+    // buddy lights up (the buttons can't answer it — it clears when the user
+    // responds in the terminal and `permission.completed` lands in the log).
+    const pendingPerm = this._perm.pending();
+    const waiting = pendingPerm ? 1 : 0;
 
     const newest = this._store.newestTurnTime();
     // Edge-triggered completion: a new turn row appearing is the authoritative
@@ -110,6 +118,14 @@ class CopilotSource extends EventEmitter {
       msg: deriveMsg({ running, waiting, total, turns }),
       entries,
     };
+
+    // A pending built-in permission prompt rides the device's existing prompt
+    // UI (buildSnapshot forwards model.prompt). The firmware de-dups by id, so
+    // re-sending the same `perm-<requestId>` never re-nags. An MCP confirm, if
+    // active, still takes precedence (the bridge overlays its own prompt).
+    if (pendingPerm) {
+      model.prompt = { id: pendingPerm.id, tool: pendingPerm.tool, hint: pendingPerm.hint };
+    }
 
     const tokens = this._log.tokens;
     if (tokens != null) model.tokens = tokens;
