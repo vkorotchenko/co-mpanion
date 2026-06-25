@@ -54,6 +54,10 @@ class CopilotSource extends EventEmitter {
     this._log = new CopilotLogTail(cfg);
     this._readSettings = makeSettingsReader(cfg.settingsJson);
     this._timer = null;
+    // Celebration latch (see _buildModel): the newest turn timestamp we've
+    // already accounted for, and the deadline until which to show "completed".
+    this._lastTurnMs = 0;
+    this._celebrateUntil = 0;
   }
 
   start() {
@@ -76,14 +80,24 @@ class CopilotSource extends EventEmitter {
     // permanently "idle" with no tokens.)
     this._log.update();
     const running = this._log.runningCount(cfg.busyWindowMs);
-    const busy = running > 0;
     const storeTotal = this._store.countActiveSessions(cfg.activeWindowMs);
     const total = Math.max(storeTotal, running);
     const waiting = 0; // permission prompts are a deferred phase
 
     const newest = this._store.newestTurnTime();
-    const completed =
-      !busy && newest && Date.now() - newest.getTime() <= cfg.completedWindowMs;
+    // Edge-triggered completion: a new turn row appearing is the authoritative
+    // "a turn just finished" signal (it's only written at a real turn boundary,
+    // never mid-turn during a tool gap). Latch it for completedHoldMs so the
+    // animation is visible, independent of the busy-grace window. New model
+    // activity (a request open right now) cancels it immediately.
+    const newestMs = newest ? newest.getTime() : 0;
+    if (this._lastTurnMs === 0) {
+      this._lastTurnMs = newestMs; // prime on startup; don't celebrate history
+    } else if (newestMs > this._lastTurnMs) {
+      this._lastTurnMs = newestMs;
+      this._celebrateUntil = Date.now() + cfg.completedHoldMs;
+    }
+    const completed = !this._log.aiActive && Date.now() < this._celebrateUntil;
 
     const turns = this._store.recentTurns(cfg.maxEntries);
     const entries = turns.map((t) => formatEntry(t)).filter(Boolean);

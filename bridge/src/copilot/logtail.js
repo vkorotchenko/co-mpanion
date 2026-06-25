@@ -269,6 +269,14 @@ class CopilotLogTail {
     return this._lastGrowthMs;
   }
 
+  // Real-time: is a model request open *right now* (no grace window)? Unlike
+  // runningCount(), this is the un-smoothed signal — used to detect a genuine
+  // turn boundary and to cancel a just-finished "celebrate" the instant new
+  // work actually starts.
+  get aiActive() {
+    return this._aiOpen > 0;
+  }
+
   // Best-effort token usage (context-window "used" when available, else a loose
   // parse). null if we never parsed any.
   get tokens() {

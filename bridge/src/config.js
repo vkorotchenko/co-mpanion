@@ -32,7 +32,10 @@ module.exports = {
 
   // --- Timing --------------------------------------------------------------
   // How often to recompute the activity model and (if changed) push a snapshot.
-  tickMs: 2000,
+  // Drives how quickly state changes (e.g. a finished turn -> celebrate) reach
+  // the device, so keep it snappy; the per-tick work (a tail read + a couple of
+  // SQLite queries) is cheap.
+  tickMs: 1000,
   // Push at least this often even when nothing changed (protocol keepalive;
   // the device treats >30s of silence as a dead link).
   keepaliveMs: 10000,
@@ -50,9 +53,13 @@ module.exports = {
   activeWindowMs: 5 * 60 * 1000,
   // The active log file growing within this window means a session is "running".
   busyWindowMs: 20 * 1000,
-  // A turn that finished within this window flips the "completed" flag (the
-  // device celebrates / shows hearts on a fast completion).
-  completedWindowMs: 5 * 1000,
+  // How long the device shows the "celebrate" animation after a turn finishes.
+  // Completion is detected the instant a new turn row appears (a real turn
+  // boundary), then held this long so the animation is actually visible; new
+  // model activity cancels it early. (Decoupled from busyWindowMs on purpose —
+  // the old "not busy AND turn within 5s" check lost the race to the 20s grace,
+  // so celebrations fired ~20s late or not at all.)
+  completedHoldMs: 6 * 1000,
   // Max recent transcript entries to send (device stores up to 8).
   maxEntries: 6,
 };
