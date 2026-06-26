@@ -90,7 +90,8 @@ class CopilotSource extends EventEmitter {
     // buddy lights up (the buttons can't answer it — it clears when the user
     // responds in the terminal and `permission.completed` lands in the log).
     const pendingPerm = this._perm.pending();
-    const waiting = pendingPerm ? 1 : 0;
+    const waitingUser = this._perm.waitingForUser();
+    const waiting = (pendingPerm || waitingUser) ? 1 : 0;
 
     const newest = this._store.newestTurnTime();
     // Edge-triggered completion: a new turn row appearing is the authoritative
@@ -107,15 +108,19 @@ class CopilotSource extends EventEmitter {
     }
     const completed = !this._log.aiActive && Date.now() < this._celebrateUntil;
 
+    // recentTurns is newest-first; the firmware renders the transcript oldest-
+    // at-top and treats the LAST line as the newest ("fresh", highlighted, and
+    // the only one shown in the compact live view). So hand it oldest-first
+    // (newest last) — otherwise the buddy shows/highlights the oldest prompts.
     const turns = this._store.recentTurns(cfg.maxEntries);
-    const entries = turns.map((t) => formatEntry(t)).filter(Boolean);
+    const entries = turns.map((t) => formatEntry(t)).filter(Boolean).reverse();
 
     const model = {
       total,
       running,
       waiting,
       completed: !!completed,
-      msg: deriveMsg({ running, waiting, total, turns }),
+      msg: deriveMsg({ running, waiting, total, turns, pendingPerm, waitingUser }),
       entries,
     };
 
@@ -150,8 +155,9 @@ class CopilotSource extends EventEmitter {
   }
 }
 
-function deriveMsg({ running, waiting, total }) {
-  if (waiting > 0) return 'approval waiting';
+function deriveMsg({ running, total, pendingPerm, waitingUser }) {
+  if (pendingPerm) return 'approval waiting';
+  if (waitingUser) return 'your turn';
   if (running > 0) return 'working...';
   if (total > 0) return 'idle';
   return 'idle';
@@ -163,7 +169,7 @@ function deriveMsg({ running, waiting, total }) {
 // truncating to a single short line.
 function formatEntry(turn) {
   const when = turn.time ? hhmm(turn.time) : '';
-  let text = flatten(turn.userMessage);
+  let text = flatten(stripInjected(turn.userMessage));
   if (!text) {
     const base = (turn.repository || turn.cwd || '').split(/[\\/]/).pop();
     text = base ? `(${base})` : '';
@@ -171,6 +177,22 @@ function formatEntry(turn) {
   text = text.slice(0, 150);
   if (!text) return '';
   return when ? `${when} ${text}` : text;
+}
+
+// The CLI/harness injects wrappers into a turn's user_message — <system_reminder>
+// blocks (custom instructions, todo status, sql tables...) and <current_datetime>
+// stamps — that aren't anything the user typed. Strip them so the device
+// transcript shows the real prompt; a turn that's *only* injected content
+// collapses to empty and is dropped by the filter in _buildModel.
+function stripInjected(s) {
+  if (!s) return '';
+  return String(s)
+    // Paired blocks anywhere in the message.
+    .replace(/<system[_-]?reminder>[\s\S]*?<\/system[_-]?reminder>/gi, ' ')
+    .replace(/<current_datetime>[\s\S]*?<\/current_datetime>/gi, ' ')
+    // An unclosed block appended to the end (no closing tag before EOF).
+    .replace(/<system[_-]?reminder>[\s\S]*$/i, ' ')
+    .replace(/<current_datetime>[\s\S]*$/i, ' ');
 }
 
 // Collapse a multi-line message into one whitespace-normalized string.
@@ -184,4 +206,4 @@ function hhmm(date) {
   return `${p(date.getHours())}:${p(date.getMinutes())}`;
 }
 
-module.exports = { CopilotSource };
+module.exports = { CopilotSource, stripInjected };

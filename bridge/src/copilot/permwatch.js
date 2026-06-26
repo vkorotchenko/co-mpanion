@@ -30,9 +30,12 @@ class PermissionWatch {
     this._recentWindowMs = p.recentWindowMs || 30 * 60 * 1000;
     // Ignore requests younger than this so fast auto-approvals (e.g. --yolo,
     // session-approved tools) don't flash on the device for one tick.
-    this._minAgeMs = p.minAgeMs || 1500;
+    this._minAgeMs = p.minAgeMs != null ? p.minAgeMs : 1500;
     this._maxReadBytes = 256 * 1024; // cap per-poll and initial-tail reads
-    // path -> { offset, partial, pending: Map(requestId -> {ts, tool, hint}) }
+    // path -> { offset, partial, pending: {requestId, ts, tool, hint}|null }
+    // A request is "pending" only while it's the LAST event in the file; any
+    // later event (completed, abort, session.shutdown, the next tool call...)
+    // means the session is no longer blocked on it.
     this._files = new Map();
   }
 
@@ -63,14 +66,24 @@ class PermissionWatch {
   pending(now = Date.now()) {
     let best = null;
     for (const st of this._files.values()) {
-      for (const [requestId, req] of st.pending) {
-        if (now - req.ts < this._minAgeMs) continue;
-        if (!best || req.ts > best.ts) {
-          best = { id: 'perm-' + requestId, tool: req.tool, hint: req.hint, ts: req.ts };
-        }
+      const req = st.pending;
+      if (!req) continue;
+      if (now - req.ts < this._minAgeMs) continue;
+      if (!best || req.ts > best.ts) {
+        best = { id: 'perm-' + req.requestId, tool: req.tool, hint: req.hint, ts: req.ts };
       }
     }
     return best;
+  }
+
+  // True if a session has finished its response and is now waiting on the user
+  // (its last assistant.message carried no tool calls and nothing has happened
+  // since). Debounced so a momentary state doesn't flicker the alert.
+  waitingForUser(now = Date.now()) {
+    for (const st of this._files.values()) {
+      if (st.waitingUser && now - st.waitingSince >= this._minAgeMs) return true;
+    }
+    return false;
   }
 
   // List <dir>/*/events.jsonl worth scanning: modified within the recent
@@ -95,8 +108,8 @@ class PermissionWatch {
         continue; // no events.jsonl in this session dir
       }
       const tracked = this._files.get(file);
-      const hasPending = tracked && tracked.pending.size > 0;
-      if (now - mtimeMs <= this._recentWindowMs || hasPending) out.add(file);
+      const active = tracked && (tracked.pending || tracked.waitingUser);
+      if (now - mtimeMs <= this._recentWindowMs || active) out.add(file);
     }
     return out;
   }
@@ -110,9 +123,10 @@ class PermissionWatch {
     }
     let st = this._files.get(file);
     if (!st) {
-      // First sight: seed from the tail so an already-pending request (which
-      // sits at/near EOF for a blocked session) is caught immediately.
-      st = { offset: Math.max(0, size - this._maxReadBytes), partial: '', pending: new Map() };
+      // First sight: seed from the tail so an already-pending request (which,
+      // for a blocked session, is the LAST event at EOF) is caught immediately.
+      st = { offset: Math.max(0, size - this._maxReadBytes), partial: '', pending: null,
+             waitingUser: false, waitingSince: 0 };
       this._files.set(file, st);
     }
     if (size < st.offset) {
@@ -139,30 +153,58 @@ class PermissionWatch {
     this._consume(st, buf.subarray(0, read).toString('utf8'));
   }
 
+  // Replay appended events, tracking two things per session:
+  //  - pending: a permission.requested that is the most recent event (any later
+  //    event clears it — avoids stale prompts from crashed/aborted sessions).
+  //  - waitingUser: the agent finished its response and is waiting on the user.
+  //    An assistant.message with no tool calls ("toolRequests":[]) ends the
+  //    turn; any tool.execution_start / user.message means it's not waiting.
   _consume(st, text) {
     const data = st.partial + text;
     const lines = data.split(/\r?\n/);
     st.partial = lines.pop(); // incomplete trailing line
     for (const line of lines) {
-      if (!line || line.indexOf('permission.') === -1) continue;
-      let ev;
-      try {
-        ev = JSON.parse(line);
-      } catch {
+      if (!line || line.indexOf('"type":"') === -1) continue;
+      if (line.indexOf('"type":"permission.requested"') !== -1) {
+        let ev;
+        try {
+          ev = JSON.parse(line);
+        } catch {
+          continue; // unparseable: leave current state untouched
+        }
+        const d = ev && ev.data;
+        if (d && d.requestId) st.pending = this._describe(d, ev.requestId, ev.timestamp);
+        st.waitingUser = false; // a permission ask is its own kind of wait
         continue;
       }
-      const d = ev && ev.data;
-      if (!d || !d.requestId) continue;
-      if (ev.type === 'permission.requested') {
-        st.pending.set(d.requestId, this._describe(d, ev.timestamp));
-      } else if (ev.type === 'permission.completed') {
-        st.pending.delete(d.requestId);
+      // Any other event supersedes a pending permission request (last-event model).
+      st.pending = null;
+      if (line.indexOf('"type":"assistant.message"') !== -1) {
+        if (line.indexOf('"toolRequests":[]') !== -1) {
+          if (!st.waitingUser) { st.waitingUser = true; st.waitingSince = Date.now(); }
+        } else {
+          st.waitingUser = false; // message carries tool calls => still working
+        }
+      } else if (line.indexOf('"type":"tool.execution_start"') !== -1) {
+        // ask_user / elicit block on the user's answer; any other tool is real
+        // work the agent is doing (don't alert for those).
+        if (line.indexOf('"toolName":"ask_user"') !== -1 ||
+            line.indexOf('"toolName":"elicit"') !== -1) {
+          if (!st.waitingUser) { st.waitingUser = true; st.waitingSince = Date.now(); }
+        } else {
+          st.waitingUser = false;
+        }
+      } else if (
+        line.indexOf('"type":"tool.execution_complete"') !== -1 ||
+        line.indexOf('"type":"user.message"') !== -1
+      ) {
+        st.waitingUser = false;
       }
     }
   }
 
-  // Build the device-facing { ts, tool, hint } from a permission.requested.
-  _describe(data, timestamp) {
+  // Build the device-facing { requestId, ts, tool, hint } from a request event.
+  _describe(data, requestId, timestamp) {
     const pr = data.permissionRequest || {};
     const kind = pr.kind || 'permission';
     const tool = TOOL_LABELS[kind] || kind;
@@ -170,7 +212,7 @@ class PermissionWatch {
     hint = String(hint).replace(/\s+/g, ' ').trim();
     let ts = Date.parse(timestamp);
     if (!Number.isFinite(ts)) ts = Date.now();
-    return { ts, tool, hint };
+    return { requestId: data.requestId || requestId, ts, tool, hint };
   }
 }
 

@@ -54,7 +54,7 @@ enum DisplayMode { DISP_NORMAL, DISP_PET, DISP_INFO, DISP_COUNT };
 uint8_t displayMode = DISP_NORMAL;
 uint8_t infoPage = 0;
 uint8_t petPage = 0;
-const uint8_t PET_PAGES = 2;
+const uint8_t PET_PAGES = 1;
 uint8_t msgScroll = 0;
 uint16_t lastLineGen = 0;
 char     lastPromptId[40] = "";
@@ -114,9 +114,9 @@ static void sendCmd(const char* json) {
   bleWrite((const uint8_t*)"\n", 1);
 }
 
-const uint8_t INFO_PAGES = 6;
+const uint8_t INFO_PAGES = 7;
 const uint8_t INFO_PG_CONTROLS = 1;
-const uint8_t INFO_PG_CREDITS = 5;
+const uint8_t INFO_PG_CREDITS = 6;
 
 void applyDisplayMode() {
   bool peek = displayMode != DISP_NORMAL;
@@ -288,35 +288,6 @@ static void clockRefreshRtc() {
 }
 static uint8_t clockDow() { return ((_clk.date.weekDay % 7) + 7) % 7; }
 
-// Compact session details (model / effort / context tokens) centered at y.
-// Used on the idle clock screen, where time is de-emphasized in its favor.
-static void drawSessionInfo(const Palette& p, int y) {
-  if (tama.model[0]) {
-    spr.setTextSize(1); spr.setTextColor(p.text, p.bg);
-    spr.drawString(tama.model, CX, y);
-    y += 13;
-  }
-  char info[24];
-  if (tama.tokensMax > 0) {
-    unsigned uk = (tama.tokensUsed + 500) / 1000;
-    unsigned mk = (tama.tokensMax + 500) / 1000;
-    if (tama.effort[0]) snprintf(info, sizeof(info), "%s  %uk/%uk", tama.effort, uk, mk);
-    else                snprintf(info, sizeof(info), "%uk/%uk", uk, mk);
-  } else if (tama.tokensUsed > 0) {
-    unsigned uk = (tama.tokensUsed + 500) / 1000;
-    if (tama.effort[0]) snprintf(info, sizeof(info), "%s  %uk", tama.effort, uk);
-    else                snprintf(info, sizeof(info), "%uk tok", uk);
-  } else if (tama.effort[0]) {
-    snprintf(info, sizeof(info), "%s", tama.effort);
-  } else {
-    info[0] = 0;
-  }
-  if (info[0]) {
-    spr.setTextSize(1); spr.setTextColor(p.textDim, p.bg);
-    spr.drawString(info, CX, y);
-  }
-}
-
 static void drawClock() {
   const Palette& p = characterPalette();
   // Date+time pinned to the very top (above the full-size pet); session info
@@ -330,9 +301,9 @@ static void drawClock() {
   // Top strip: date+time, small + dim, nudged down from the very edge.
   spr.fillRect(0, 0, W, 28, p.bg);
   spr.setTextSize(1); spr.setTextColor(p.textDim, p.bg); spr.drawString(dt, CX, 15);
-  // Bottom band: model / effort / tokens, below the larger (3×) pet (~y182).
+  // Bottom band removed (model/effort live on the pet stats page); just clear
+  // the area below the full-size pet so nothing stale lingers.
   spr.fillRect(0, 186, W, H - 186, p.bg);
-  drawSessionInfo(p, 198);
   spr.setTextDatum(TL_DATUM);
 }
 
@@ -340,7 +311,11 @@ PersonaState derive(const TamaState& s) {
   if (!s.connected)            return P_IDLE;
   if (s.sessionsWaiting > 0)   return P_ATTENTION;
   if (s.recentlyCompleted)     return P_CELEBRATE;
-  if (s.sessionsRunning >= 3)  return P_BUSY;
+  // "Thinking": the agent is actively running. The bridge's running count
+  // already has a ~20s grace so brief tool-execution gaps don't drop us out of
+  // busy; any open request => the buddy visibly thinks (P_BUSY). Otherwise it's
+  // idle/bored and (via the idle clock + night decay) drifts to sleep.
+  if (s.sessionsRunning >= 1)  return P_BUSY;
   return P_IDLE;
 }
 
@@ -453,6 +428,17 @@ void drawInfo() {
       ln(p.text,    "bridge to connect");
     }
 
+  } else if (infoPage == 5) {
+    _infoHeader(p, "PET CARE", infoPage);
+    ln(p.body,    "MOOD");
+    ln(p.textDim, "approve fast = up");
+    y += 3;
+    ln(p.body,    "FED");
+    ln(p.textDim, "50K tokens = level up");
+    y += 3;
+    ln(p.body,    "ENERGY");
+    ln(p.textDim, "rest (sleep) refills");
+
   } else {
     _infoHeader(p, "CREDITS", infoPage);
     ln(p.textDim, "co-mpanion");
@@ -512,30 +498,21 @@ static void drawPetStats(const Palette& p) {
   y += 18;
 
   cline(y, p.body, p.bg, "Lv %u  approved %u", stats().level, stats().approvals);
-}
 
-static void drawPetHowTo(const Palette& p) {
-  spr.fillRect(0, 86, W, H - 86, p.bg);
-  spr.setTextSize(1);
-  int y = 96;
-  auto ln = [&](uint16_t c, const char* s) { cline(y, c, p.bg, "%s", s); y += 11; };
-  ln(p.body,    "MOOD");
-  ln(p.textDim, "approve fast = up");
-  y += 3;
-  ln(p.body,    "FED");
-  ln(p.textDim, "50K tokens = level up");
-  y += 3;
-  ln(p.body,    "ENERGY");
-  ln(p.textDim, "rest (sleep) refills");
+  // Active session model + reasoning effort (moved here from the home band).
+  if (tama.model[0]) {
+    y += 16;
+    if (tama.effort[0]) cline(y, p.textDim, p.bg, "%s  %s", tama.model, tama.effort);
+    else                cline(y, p.textDim, p.bg, "%s", tama.model);
+  }
 }
 
 void drawPet() {
   const Palette& p = characterPalette();
-  if (petPage == 0) drawPetStats(p);
-  else drawPetHowTo(p);
+  drawPetStats(p);
   spr.setTextSize(1);
-  if (ownerName()[0]) cline(76, p.text, p.bg, "%s's %s  %u/%u", ownerName(), petName(), petPage + 1, PET_PAGES);
-  else                cline(76, p.text, p.bg, "%s  %u/%u", petName(), petPage + 1, PET_PAGES);
+  if (ownerName()[0]) cline(76, p.text, p.bg, "%s's %s", ownerName(), petName());
+  else                cline(76, p.text, p.bg, "%s", petName());
 }
 
 // Approval prompt: tool name centered, two touch buttons below. The currently
@@ -660,14 +637,6 @@ void drawHUD() {
       cline(BASE + i * LH, fresh ? p.text : p.textDim, p.bg, "%s", disp[row]);
     }
     if (reading) cline(BASE + SHOW * LH, p.body, p.bg, "tap to exit  -%u", msgScroll);
-  }
-
-  // Bottom band: model / effort / tokens, always shown on the live (non-reading)
-  // home view so the active session's model is visible while working.
-  if (!reading) {
-    spr.setTextDatum(MC_DATUM);
-    drawSessionInfo(p, 202);
-    spr.setTextDatum(TL_DATUM);
   }
 }
 
@@ -833,7 +802,10 @@ void loop() {
   // attention buzzer chirp (the ring is drawn in the render section)
   if (activeState == P_ATTENTION && settings().sound) {
     static uint32_t lastChirp = 0;
-    if (now - lastChirp > 2000) { lastChirp = now; hwTone(1200, 60); }
+    // Urgent (a real approval prompt is up) chirps often; a plain "your turn"
+    // wait just gives a gentle periodic reminder so it isn't naggy.
+    uint32_t interval = tama.promptId[0] ? 2000 : 20000;
+    if (now - lastChirp > interval) { lastChirp = now; hwTone(1200, 60); }
   }
 
   // Prompt arrival: beep, jump to the approval screen, reset response flag.

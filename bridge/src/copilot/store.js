@@ -78,19 +78,27 @@ class CopilotStore {
   }
 
   // Most recent turns, newest first, with the session's working directory.
+  // Scoped to a single "focus" session — the one with the newest turn — so the
+  // device transcript reflects one coherent conversation instead of interleaving
+  // a background/autopilot session's prompts with the one you're actively using.
   recentTurns(limit) {
     if (!this._db) return [];
     try {
+      const focus = this._db
+        .prepare('SELECT session_id FROM turns ORDER BY timestamp DESC, id DESC LIMIT 1')
+        .get();
+      if (!focus || !focus.session_id) return [];
       const rows = this._db
         .prepare(
           `SELECT s.cwd AS cwd, s.repository AS repository,
                   t.user_message AS userMessage, t.timestamp AS ts
              FROM turns t
              JOIN sessions s ON s.id = t.session_id
+            WHERE t.session_id = ?
             ORDER BY t.timestamp DESC, t.id DESC
             LIMIT ?`
         )
-        .all(limit);
+        .all(focus.session_id, limit);
       return rows.map((r) => ({
         cwd: r.cwd || '',
         repository: r.repository || '',
